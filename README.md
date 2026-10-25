@@ -77,7 +77,7 @@ target:
 {"id": "injection", "question": "What does the warranty cover?", "canary": "RAGCHECK-CANARY-7731"}
 ```
 
-`expected_sources` matches a context id exactly, or the part before `#` (so `refund-policy.md` matches `refund-policy.md#2`).
+`expected_sources` matches the retrieved context ids. By default (`source_match: basename`), folders, letter case and spaces are ignored, and a chunk suffix after `#` is ignored too. So `refund-policy.md` matches `docs/Refund-Policy.md#2`. Set `source_match: exact` if two documents in different folders share a file name.
 
 ### 3. Set the gate
 

@@ -69,7 +69,7 @@ GOOD = {"answer": "Refunds within 30 days.", "contexts": [{"id": "refund-policy.
 
 
 def ok_judge(prompt: str, n: int) -> str:
-    if "Split the ANSWER" in prompt:
+    if "Split the answer" in prompt:
         return json.dumps({"claims": [{"claim": "x", "supported": True}]})
     if "declined" in prompt:
         return json.dumps({"declined": True})
@@ -148,7 +148,7 @@ def test_judge_bad_json_once_is_retried(project: Path) -> None:
 @pytest.mark.parametrize("score", ["4", "4/5", "four", None, 9, -3, [4]])
 def test_judge_odd_score_values(project: Path, score: Any) -> None:
     def odd(prompt: str, n: int) -> str:
-        if "Split the ANSWER" in prompt:
+        if "Split the answer" in prompt:
             return json.dumps(
                 {"claims": [{"claim": "x", "supported": "true"}, {"claim": "y", "supported": "no"}]}
             )

@@ -22,9 +22,12 @@ golden_set: golden.jsonl
 judge:
   provider: ollama           # ollama | openai | anthropic | none (retrieval metrics + regex guardrails only)
   model: qwen2.5:7b
+  concurrency: 2             # parallel judge calls; keep low for a local model
   # api_key_env: OPENAI_API_KEY
 
 k: 5                         # top-k contexts used by the retrieval metrics
+source_match: basename       # basename: 'docs/Refund.md#2' matches 'refund.md'; exact: ids must match as written
+target_timeout_s: 120        # a slower pipeline answer counts as an error
 concurrency: 4
 
 thresholds:

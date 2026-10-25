@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from ragcheck.config import Config
+from ragcheck.config import Config, JudgeConfig
 
 
 class JudgeError(Exception):
@@ -53,9 +53,20 @@ def _transient(e: Exception) -> bool:
 class CachedJudge:
     """Wraps a judge with retries and a content-addressed cache in <workdir>/cache."""
 
-    def __init__(self, inner: Judge, cache_dir: Path, attempts: int = 3, backoff_s: float = 0.5) -> None:
+    def __init__(
+        self,
+        inner: Judge,
+        cache_dir: Path,
+        attempts: int = 3,
+        backoff_s: float = 0.5,
+        concurrency: int = 2,
+        identity: str | None = None,
+    ) -> None:
         self.inner = inner
         self.name = inner.name
+        # What the cache key is tied to: provider, model and endpoint, not just the model name
+        self.identity = identity or inner.name
+        self.sem = asyncio.Semaphore(max(1, concurrency))
         self.dir = cache_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.attempts = max(1, attempts)
@@ -72,14 +83,18 @@ class CachedJudge:
         return data if isinstance(data, dict) else None
 
     def _write(self, path: Path, data: dict[str, Any]) -> None:
-        path.parent.mkdir(exist_ok=True)
         # Write then rename, so a crash never leaves a truncated entry behind
         tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        os.replace(tmp, path)
+        try:
+            path.parent.mkdir(exist_ok=True)
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            # Caching is an optimisation: a locked or read-only cache must not fail the run
+            tmp.unlink(missing_ok=True)
 
     async def ask_json(self, system: str, prompt: str) -> dict[str, Any]:
-        key = hashlib.sha256(f"{self.name}\0{system}\0{prompt}".encode()).hexdigest()
+        key = hashlib.sha256(f"{self.identity}\0{system}\0{prompt}".encode()).hexdigest()
         path = self.dir / key[:2] / f"{key}.json"
         cached = self._read(path) if path.exists() else None
         if cached is not None:
@@ -89,7 +104,9 @@ class CachedJudge:
         delay = self.backoff_s
         for attempt in range(1, self.attempts + 1):
             try:
-                data = parse_json(await self.inner.complete(system, prompt))
+                async with self.sem:
+                    reply = await self.inner.complete(system, prompt)
+                data = parse_json(reply)
                 break
             except Exception as e:
                 if attempt == self.attempts or not _transient(e):
@@ -101,6 +118,10 @@ class CachedJudge:
 
     async def aclose(self) -> None:
         await self.inner.aclose()
+
+
+def cache_identity(j: JudgeConfig) -> str:
+    return f"{j.provider}|{j.model}|{j.base_url or 'default'}"
 
 
 def make_judge(cfg: Config) -> CachedJudge | None:
@@ -120,4 +141,6 @@ def make_judge(cfg: Config) -> CachedJudge | None:
         from ragcheck.judges.anthropic import AnthropicJudge
 
         inner = AnthropicJudge(j)
-    return CachedJudge(inner, cfg.path(cfg.workdir) / "cache")
+    return CachedJudge(
+        inner, cfg.path(cfg.workdir) / "cache", concurrency=j.concurrency, identity=cache_identity(j)
+    )

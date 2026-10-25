@@ -7,6 +7,7 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from ragcheck.baseline import Verdict
+from ragcheck.metrics.retrieval import is_expected
 from ragcheck.models import RunResult
 
 LABELS = {
@@ -38,6 +39,14 @@ def _fmt_delta(delta: float | None) -> str:
     return f"{'+' if delta > 0 else '−'}{abs(delta):.3f}"
 
 
+def _code(text: str) -> str:
+    """Inline code that survives a Markdown table: escape pipes, and fence backticks with a longer run."""
+    text = text.replace("|", "\\|").replace("\n", " ")
+    fence = "``" if "`" in text else "`"
+    pad = " " if "`" in text else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) -> str:
     status = "✅ **RAGCheck passed**" if verdict.passed else "❌ **RAGCheck failed**"
     lines = [COMMENT_MARKER, f"### {status}", ""]
@@ -56,7 +65,7 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
         lines += ["", f"<details><summary>{len(verdict.regressed_cases)} question(s) regressed</summary>", ""]
         lines += ["| Case | Metric | Before | After |", "|---|---|---:|---:|"]
         for r in verdict.regressions[:25]:
-            lines.append(f"| `{r.case_id}` | {label(r.what)} | {r.before} | {r.after} |")
+            lines.append(f"| {_code(r.case_id)} | {label(r.what)} | {r.before} | {r.after} |")
         lines += ["", "</details>"]
     if verdict.warnings:
         lines += ["", *[f"> ⚠️ {w}" for w in verdict.warnings]]
@@ -73,6 +82,7 @@ def html(run: RunResult, verdict: Verdict, baseline: RunResult | None) -> str:
     )
     env.filters["label"] = label
     env.filters["delta"] = _fmt_delta
+    env.globals["is_expected"] = lambda cid, expected: is_expected(cid, expected, run.source_match)
     before = {r.case.id: r for r in baseline.results} if baseline else {}
     regressed = {r.case_id for r in verdict.regressions}
     # Regressed and failing questions first, so the reader sees problems without scrolling

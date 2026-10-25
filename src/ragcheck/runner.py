@@ -43,7 +43,7 @@ async def _ask(target: Target, case: GoldenCase, retries: int, timeout_s: float)
 async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) -> None:
     case, wanted = res.case, set(cfg.metrics)
 
-    for name, value in retrieval_scores(res.contexts, case.expected_sources, cfg.k).items():
+    for name, value in retrieval_scores(res.contexts, case.expected_sources, cfg.k, cfg.source_match).items():
         if name in wanted:
             res.scores[name] = value
 
@@ -153,4 +153,5 @@ async def run(
         latency_p95_ms=round(_percentile(latencies, 0.95), 1),
         errors=sum(1 for r in results if r.error),
         judge_errors=sum(1 for r in results if r.judge_error),
+        source_match=cfg.source_match,
     )

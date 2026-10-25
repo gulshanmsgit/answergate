@@ -81,7 +81,7 @@ class ScriptedJudge:
 
     async def complete(self, system: str, prompt: str) -> str:
         self.calls += 1
-        if "Split the ANSWER" in prompt:
+        if "Split the answer" in prompt:
             return json.dumps(
                 {"claims": [{"claim": "a", "supported": True}, {"claim": "b", "supported": False}]}
             )

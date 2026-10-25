@@ -147,7 +147,7 @@
         <div>
           <div class="label">Retrieved context{% if r.case.expected_sources %} · expected: {{ r.case.expected_sources|join(", ") }}{% endif %}</div>
           {% for c in r.contexts %}
-            {% set hit = c.id in r.case.expected_sources or c.id.split("#")[0] in r.case.expected_sources %}
+            {% set hit = r.case.expected_sources and is_expected(c.id, r.case.expected_sources) %}
             <div class="ctx{% if hit %} hit{% endif %}"><b>#{{ loop.index }} · {{ c.id }}{% if hit %} · expected ✓{% endif %}</b>{{ c.text[:600] }}{% if c.text|length > 600 %}…{% endif %}</div>
           {% else %}<div class="ctx">No context retrieved</div>{% endfor %}
         </div>

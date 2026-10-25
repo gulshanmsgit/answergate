@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -66,3 +68,4 @@ class RunResult(BaseModel):
     latency_p95_ms: float = 0.0
     errors: int = 0
     judge_errors: int = 0
+    source_match: Literal["exact", "basename"] = "exact"

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import inspect
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,33 @@ def load_callable(spec: str, root: Path) -> Callable[..., Any]:
     return fn
 
 
+async def _in_daemon_thread(fn: Callable[[str], Any], arg: str) -> Any:
+    """Run a blocking call in a daemon thread.
+
+    asyncio.to_thread would use the default executor, which asyncio.run waits for on exit: one hung
+    pipeline call would then freeze the CLI long after its timeout. A daemon thread is abandoned instead.
+    """
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[Any] = loop.create_future()
+
+    def settle(ok: bool, value: Any) -> None:
+        if not fut.done():  # already cancelled by a timeout
+            fut.set_result(value) if ok else fut.set_exception(value)
+
+    def work() -> None:
+        try:
+            result: Any = fn(arg)
+            ok = True
+        except BaseException as e:
+            result, ok = e, False
+        # RuntimeError: the run finished and its loop closed while this call was still hanging
+        with contextlib.suppress(RuntimeError):
+            loop.call_soon_threadsafe(settle, ok, result)
+
+    threading.Thread(target=work, daemon=True, name="ragcheck-target").start()
+    return await fut
+
+
 class PythonTarget:
     """Calls a function in-process: fn(question) -> {"answer", "contexts"} or (answer, contexts)."""
 
@@ -41,7 +70,10 @@ class PythonTarget:
         if inspect.iscoroutinefunction(self.fn):
             out = await self.fn(question)
         else:
-            out = await asyncio.to_thread(self.fn, question)
+            out = await _in_daemon_thread(self.fn, question)
+        # functools.partial of an async function, or an object with async __call__, returns a coroutine
+        if inspect.isawaitable(out):
+            out = await out
         return to_response(out)
 
     async def aclose(self) -> None:

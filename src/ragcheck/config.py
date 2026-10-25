@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from ragcheck.models import GoldenCase
 
@@ -47,6 +47,20 @@ class JudgeConfig(BaseModel):
     # Name of the environment variable holding the API key (never the key itself)
     api_key_env: str | None = None
     timeout_s: float = 120.0
+    # Parallel judge calls. Kept low: a local Ollama serves one request at a time, and queued calls time out
+    concurrency: int = Field(default=2, ge=1)
+
+
+# Every metric RAGCheck can compute; names in `metrics` and `thresholds` are checked against these
+METRICS = (
+    "hit_rate",
+    "mrr",
+    "context_precision",
+    "context_recall",
+    "faithfulness",
+    "relevance",
+    "correctness",
+)
 
 
 class Thresholds(BaseModel):
@@ -82,6 +96,8 @@ class Config(BaseModel):
     # A pipeline call taking longer than this counts as an error for that question
     target_timeout_s: float = Field(default=120.0, gt=0)
     thresholds: Thresholds = Field(default_factory=Thresholds)
+    # How expected_sources match retrieved ids: "basename" ignores folders, case and spaces; "exact" doesn't
+    source_match: Literal["basename", "exact"] = "basename"
     # Strings the PII check ignores, e.g. your public support email
     pii_allow: list[str] = Field(default_factory=list)
     # Where run history, the baseline and the judge cache live
@@ -89,6 +105,21 @@ class Config(BaseModel):
 
     # Set by load_config: the folder relative paths resolve against
     root: Path = Field(default=Path("."), exclude=True)
+
+    @model_validator(mode="after")
+    def _known_metrics(self) -> Config:
+        # A typo here would otherwise switch a metric or a gate off without a word
+        for where, names in (
+            ("metrics", self.metrics),
+            ("thresholds.min", list(self.thresholds.min)),
+            ("thresholds.max_drop", list(self.thresholds.max_drop)),
+        ):
+            for name in names:
+                if name not in METRICS:
+                    close = [m for m in METRICS if m[:4] == name[:4]]
+                    hint = f" Did you mean '{close[0]}'?" if close else ""
+                    raise ValueError(f"Unknown metric '{name}' in {where}.{hint} Known: {', '.join(METRICS)}")
+        return self
 
     def path(self, p: str) -> Path:
         return (self.root / p).resolve()

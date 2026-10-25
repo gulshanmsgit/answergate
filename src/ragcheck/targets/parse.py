@@ -57,7 +57,10 @@ def to_response(
             contexts.append(Context(id=c, text=c))
         elif isinstance(c, dict):
             cid = c.get(id_field)
-            contexts.append(Context(id=str(cid if cid is not None else i), text=str(c.get(text_field, ""))))
+            text = c.get(text_field)
+            contexts.append(
+                Context(id=str(cid if cid is not None else i), text="" if text is None else str(text))
+            )
         else:
             raise ResponseShapeError(f"Context {i} must be a string or an object")
     return TargetResponse(answer=answer, contexts=contexts)
