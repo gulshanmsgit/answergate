@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.claude/
+
+# Local run history and judge cache (commit .ragcheck/baseline.json only)
+.ragcheck/*
+!.ragcheck/baseline.json
+ragcheck-report.html
+ragcheck-summary.md

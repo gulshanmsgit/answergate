@@ -1,0 +1,39 @@
+# RAGCheck config. Docs: https://github.com/gulshanmsgit/ragcheck
+
+# How to call your pipeline. Option 1: an HTTP endpoint.
+target:
+  type: http
+  url: http://localhost:8000/ask
+  body: { question: "{question}" }
+  answer_path: answer        # dotted path to the answer in the JSON response
+  contexts_path: contexts    # list of retrieved chunks: strings, or objects with id + text
+  context_id_field: id
+  context_text_field: text
+  # headers: { Authorization: "Bearer ${MY_API_TOKEN}" }   # ${VAR} reads an environment variable
+
+# Option 2: a Python function, fn(question) -> {"answer": str, "contexts": [...]}
+# target:
+#   type: python
+#   callable: my_app.rag:answer
+
+golden_set: golden.jsonl
+
+# The LLM that grades answers. Ollama keeps everything on your machine.
+judge:
+  provider: ollama           # ollama | openai | anthropic | none (retrieval metrics + regex guardrails only)
+  model: qwen2.5:7b
+  # api_key_env: OPENAI_API_KEY
+
+k: 5                         # top-k contexts used by the retrieval metrics
+concurrency: 4
+
+thresholds:
+  min:
+    hit_rate: 0.8
+    faithfulness: 0.8
+  default_max_drop: 0.05     # fail if any metric falls more than this versus the baseline
+  max_drop:
+    relevance: 0.1
+  guardrails_must_pass: true
+
+# pii_allow: ["support@yourcompany.com"]

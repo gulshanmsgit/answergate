@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAGCheck · {{ "passed" if verdict.passed else "failed" }} · {{ run.id }}</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --line: #e7e5e4; --fg: #1c1917; --muted: #78716c;
+    --accent: #ff5b2e; --ok: #16a34a; --bad: #dc2626; --warn: #b45309; --mark: #fff1ec;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0c0a09; --surface: #161412; --line: #2a2725; --fg: #f5f5f4; --muted: #a8a29e;
+            --ok: #4ade80; --bad: #f87171; --warn: #fbbf24; --mark: #2b1810; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { overflow-wrap: anywhere; max-width: 1080px; margin: 0 auto; padding: 40px 16px 80px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+  .brand { font: 600 12px var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .brand b { color: var(--accent); }
+  h1 { margin: 6px 0 0; font-size: 32px; letter-spacing: -.02em; }
+  h1 .ok { color: var(--ok); } h1 .bad { color: var(--bad); }
+  .meta { font: 12px var(--mono); color: var(--muted); text-align: right; }
+  h2 { font: 600 12px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 40px 0 12px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--surface); border: 1px solid var(--line); padding: 16px; min-width: 0; }
+  .card .name { font-size: 12px; color: var(--muted); }
+  .card .val { font: 600 26px var(--mono); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .d { font: 12px var(--mono); }
+  .up { color: var(--ok); } .down { color: var(--bad); } .flat { color: var(--muted); }
+  ul.list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--surface); }
+  ul.list li { padding: 10px 14px; border-top: 1px solid var(--line); }
+  ul.list li:first-child { border-top: 0; }
+  ul.fail li::before { content: "✕ "; color: var(--bad); font-weight: 700; }
+  ul.warn li::before { content: "! "; color: var(--warn); font-weight: 700; }
+  details.case { border: 1px solid var(--line); background: var(--surface); margin-top: -1px; }
+  details.case > summary { cursor: pointer; list-style: none; display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 12px 14px; }
+  details.case > summary::-webkit-details-marker { display: none; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+  .dot.reg { background: var(--bad); } .dot.err { background: var(--warn); }
+  .q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .q code { color: var(--muted); font: 12px var(--mono); margin-right: 8px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { font: 11px var(--mono); padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px; white-space: nowrap; }
+  .chip.bad { border-color: var(--bad); color: var(--bad); }
+  .body { padding: 4px 14px 16px 42px; display: grid; gap: 14px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) {
+    .cols { grid-template-columns: 1fr; } .body { padding-left: 14px; } .meta { text-align: left; }
+    details.case > summary { grid-template-columns: 18px 1fr; } .q { white-space: normal; } .chips { grid-column: 2; justify-content: flex-start; }
+  }
+  .label { font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .answer { white-space: pre-wrap; border-left: 2px solid var(--line); padding-left: 10px; }
+  .ctx { font-size: 13px; border: 1px solid var(--line); padding: 8px 10px; margin-top: 6px; max-height: 140px; overflow: auto; }
+  .ctx.hit { border-color: var(--accent); background: var(--mark); }
+  .ctx b { font: 11px var(--mono); color: var(--muted); display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.n { font-family: var(--mono); white-space: nowrap; }
+  footer { margin-top: 48px; font: 12px var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="brand"><b>■</b> RAGCheck report</div>
+      <h1>{% if verdict.passed %}<span class="ok">Passed</span>{% else %}<span class="bad">Failed</span>{% endif %}
+        · {{ run.results|length }} questions</h1>
+    </div>
+    <div class="meta">
+      run {{ run.id }}{% if run.label %} · {{ run.label }}{% endif %}<br>
+      {{ run.created_at }}<br>
+      {% if baseline %}vs baseline {{ baseline.id }}{% if baseline.label %} · {{ baseline.label }}{% endif %}{% else %}no baseline yet{% endif %}<br>
+      p50 {{ "%.0f"|format(run.latency_p50_ms) }} ms · p95 {{ "%.0f"|format(run.latency_p95_ms) }} ms
+    </div>
+  </header>
+
+  {% macro card(d) %}
+    <div class="card">
+      <div class="name">{{ d.name|label }}</div>
+      <div class="val">{{ "%.3f"|format(d.current) if d.current is not none else "—" }}</div>
+      {% set x = d.delta %}
+      <div class="d {{ 'flat' if x is none or (x|abs) < 0.0005 else ('up' if x > 0 else 'down') }}">
+        {{ x|delta }}{% if d.baseline is not none %} from {{ "%.3f"|format(d.baseline) }}{% endif %}
+      </div>
+    </div>
+  {% endmacro %}
+
+  <h2>Quality</h2>
+  <div class="cards">{% for d in verdict.metrics %}{{ card(d) }}{% endfor %}</div>
+
+  {% if verdict.guardrails %}
+  <h2>Guardrails (pass rate)</h2>
+  <div class="cards">{% for d in verdict.guardrails %}{{ card(d) }}{% endfor %}</div>
+  {% endif %}
+
+  {% if verdict.failures %}
+  <h2>Why it failed</h2>
+  <ul class="list fail">{% for f in verdict.failures %}<li>{{ f }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if verdict.warnings %}
+  <h2>Warnings</h2>
+  <ul class="list warn">{% for w in verdict.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  <h2>Questions · {{ regressed|length }} regressed{% if verdict.improvements %} · {{ verdict.improvements }} improved{% endif %}</h2>
+  {% for r in results %}
+    {% set b = before.get(r.case.id) %}
+    {% set failed_rails = r.guardrails.items()|selectattr(1, "false")|map(attribute=0)|list %}
+    <details class="case"{% if r.case.id in regressed %} open{% endif %}>
+      <summary>
+        <span class="dot{% if r.case.id in regressed or failed_rails %} reg{% elif r.error %} err{% endif %}"></span>
+        <span class="q"><code>{{ r.case.id }}</code>{{ r.case.question }}</span>
+        <span class="chips">
+          {% for name, s in r.scores.items() %}
+            {% set old = b.scores.get(name) if b else none %}
+            <span class="chip{% if old is not none and old - s >= 0.25 %} bad{% endif %}">{{ name|label }} {{ "%.2f"|format(s) }}</span>
+          {% endfor %}
+          {% for name in failed_rails %}<span class="chip bad">{{ name|label }} ✕</span>{% endfor %}
+          {% if r.error %}<span class="chip bad">error</span>{% endif %}
+        </span>
+      </summary>
+      <div class="body">
+        {% if r.error %}<div><div class="label">Error</div>{{ r.error }}</div>{% endif %}
+        <div class="cols">
+          <div>
+            <div class="label">Answer · this run</div>
+            <div class="answer">{{ r.answer or "—" }}</div>
+          </div>
+          <div>
+            <div class="label">Answer · baseline</div>
+            <div class="answer">{{ b.answer if b else "—" }}</div>
+          </div>
+        </div>
+        {% if r.case.reference_answer %}<div><div class="label">Reference answer</div><div class="answer">{{ r.case.reference_answer }}</div></div>{% endif %}
+        {% if r.notes %}
+        <div>
+          <div class="label">Judge notes</div>
+          <table>{% for k, n in r.notes.items() %}<tr><td class="n">{{ k|label }}</td><td>{{ n }}</td></tr>{% endfor %}</table>
+        </div>
+        {% endif %}
+        <div>
+          <div class="label">Retrieved context{% if r.case.expected_sources %} · expected: {{ r.case.expected_sources|join(", ") }}{% endif %}</div>
+          {% for c in r.contexts %}
+            {% set hit = c.id in r.case.expected_sources or c.id.split("#")[0] in r.case.expected_sources %}
+            <div class="ctx{% if hit %} hit{% endif %}"><b>#{{ loop.index }} · {{ c.id }}{% if hit %} · expected ✓{% endif %}</b>{{ c.text[:600] }}{% if c.text|length > 600 %}…{% endif %}</div>
+          {% else %}<div class="ctx">No context retrieved</div>{% endfor %}
+        </div>
+      </div>
+    </details>
+  {% endfor %}
+
+  <footer>Generated by RAGCheck · scoring settings {{ run.config_hash }}</footer>
+</main>
+</body>
+</html>

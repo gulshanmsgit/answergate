@@ -1,0 +1,119 @@
+# RAGCheck
+
+**Regression tests for RAG pipelines.** Change a chunk size, an embedding model, a prompt or an LLM version, and RAGCheck tells you in the pull request whether answers got worse, and on which questions.
+
+```
+$ ragcheck run --label "chunk-256"
+RAGCheck 0.1.0 · 40 questions · judge: ollama/qwen2.5:7b
+
+  Hit rate             0.775  -0.150
+  MRR                  0.612  -0.121
+  Faithfulness         0.861  -0.064
+  Answer relevance     0.912  +0.008
+  No PII leaked        1.000
+  Resists injection    1.000
+
+  6 question(s) regressed:
+    - refund-window: Hit rate 1.00 → 0.00
+    ...
+
+FAILED
+  ✕ hit_rate dropped 0.150 (from 0.925 to 0.775); allowed 0.050
+```
+
+## Why
+
+Teams test RAG by asking a few questions by hand. Quality then drops quietly after a "harmless" change, and users notice first. RAGCheck is a small, CI-first tool built for one job:
+
+- **It gates on regressions, not just scores.** Every run is compared with a saved baseline. It fails when a metric drops more than you allow, and shows exactly which questions got worse, with the before and after answers side by side.
+- **Deterministic metrics come first.** Hit rate, MRR, context precision and recall are computed from your expected source documents, with no LLM involved. That's enough to gate a pipeline on its own.
+- **LLM-judged metrics are optional and private.** Faithfulness (the share of claims supported by retrieved context), answer relevance and correctness against a reference. The default judge is a **local model via Ollama**, so your documents never leave your machine. OpenAI-compatible and Anthropic judges are supported too. Judge replies are cached, so reruns are fast and repeatable.
+- **Guardrails are built in:**
+  - PII leaks (email, phone, Aadhaar, PAN, card numbers, SSN);
+  - prompt injection via a planted canary document;
+  - off-topic questions the pipeline should decline.
+
+### How it compares
+[RAGAS](https://github.com/explodinggradients/ragas) and [DeepEval](https://github.com/confident-ai/deepeval) are rich metric libraries, and [promptfoo](https://github.com/promptfoo/promptfoo) tests prompts across models. RAGCheck is deliberately narrower: a zero-code CLI and GitHub Action that treats your pipeline as a black box, stores baselines, and blocks the merge when quality regresses. Use it alongside those libraries if you need more metrics.
+
+## Quickstart
+
+```bash
+pip install ragcheck-ci
+ragcheck init            # writes ragcheck.yaml, golden.jsonl and canary-doc.md
+ragcheck run --save-baseline
+# ...change something in your pipeline...
+ragcheck run             # exit code 1 if quality regressed
+```
+
+### 1. Point it at your pipeline
+
+An HTTP endpoint that returns the answer and the retrieved chunks:
+
+```yaml
+target:
+  type: http
+  url: http://localhost:8000/ask
+  body: { question: "{question}" }
+  answer_path: answer
+  contexts_path: contexts          # [{ "id": "refund-policy.md#2", "text": "..." }, ...]
+```
+
+Or a Python function, sync or async:
+
+```yaml
+target:
+  type: python
+  callable: my_app.rag:answer      # answer(question) -> {"answer": ..., "contexts": [...]}
+```
+
+### 2. Write a golden set
+
+`golden.jsonl` has one case per line:
+
+```json
+{"id": "refund-window", "question": "How long do I have to request a refund?", "expected_sources": ["refund-policy.md"], "reference_answer": "30 days from delivery."}
+{"id": "offtopic", "question": "What's the weather in Paris?", "expect_refusal": true}
+{"id": "injection", "question": "What does the warranty cover?", "canary": "RAGCHECK-CANARY-7731"}
+```
+
+`expected_sources` matches a context id exactly, or the part before `#` (so `refund-policy.md` matches `refund-policy.md#2`).
+
+### 3. Set the gate
+
+```yaml
+thresholds:
+  min: { hit_rate: 0.8, faithfulness: 0.8 }
+  default_max_drop: 0.05           # any metric may drop at most this much versus the baseline
+  max_drop: { relevance: 0.1 }
+  guardrails_must_pass: true
+```
+
+## In CI (GitHub Actions)
+
+Commit `.ragcheck/baseline.json` from your main branch. Then, on every pull request:
+
+```yaml
+- uses: gulshanmsgit/ragcheck@v0
+  with:
+    config: ragcheck.yaml
+```
+
+The action runs the suite, uploads the HTML report as an artifact, posts a summary comment on the PR (updated in place on each push), and fails the check on a regression.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `ragcheck init` | Create starter files |
+| `ragcheck run` | Run the suite, compare with the baseline, write the reports |
+| `ragcheck run --save-baseline` | Same, then make this run the baseline if it passed |
+| `ragcheck run --no-judge` | Retrieval metrics and regex guardrails only, no LLM calls |
+| `ragcheck compare [RUN]` | Re-check a saved run against the baseline |
+| `ragcheck baseline [RUN]` | Make a saved run the baseline |
+
+Exit codes: `0` passed, `1` the quality gate failed, `2` RAGCheck could not run.
+
+## License
+
+MIT
