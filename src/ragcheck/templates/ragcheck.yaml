@@ -21,7 +21,8 @@ golden_set: golden.jsonl
 # The LLM that grades answers. Ollama keeps everything on your machine.
 judge:
   provider: ollama           # ollama | openai | anthropic | none (retrieval metrics + regex guardrails only)
-  model: qwen2.5:7b
+  model: qwen2.5:7b           # anthropic default: claude-opus-5-5; openai: set the model your endpoint serves
+  # effort: low              # anthropic only: cheaper, faster grading
   concurrency: 2             # parallel judge calls; keep low for a local model
   # api_key_env: OPENAI_API_KEY
 

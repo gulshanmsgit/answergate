@@ -1,41 +1,59 @@
+"""A local model through Ollama as the judge: nothing leaves the machine."""
+
 from __future__ import annotations
+
+from typing import Any
 
 import httpx
 
 from ragcheck.config import JudgeConfig
-from ragcheck.judges import JudgeError
+from ragcheck.judges import FatalJudgeError, JudgeError, Schema
 
 
 class OllamaJudge:
-    """A local model through Ollama: nothing leaves the machine."""
-
-    def __init__(self, cfg: JudgeConfig) -> None:
-        self.model = cfg.model
-        self.name = f"ollama/{cfg.model}"
+    def __init__(self, cfg: JudgeConfig, model: str) -> None:
+        self.model = model
+        self.name = f"ollama/{model}"
         self.client = httpx.AsyncClient(
             base_url=cfg.base_url or "http://localhost:11434", timeout=cfg.timeout_s
         )
+        # Recent Ollama versions take a JSON schema in "format"; older ones only "json"
+        self.schema_format = True
 
-    async def complete(self, system: str, prompt: str) -> str:
-        try:
-            r = await self.client.post(
-                "/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    "format": "json",
-                    "stream": False,
-                    "options": {"temperature": 0, "seed": 7},
-                },
-            )
-        except httpx.ConnectError as e:
-            raise JudgeError(
-                "Cannot reach Ollama. Start it with `ollama serve`, or set judge.provider."
-            ) from e
+    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str:
+        for _ in range(2):
+            fmt: Any = schema if schema and self.schema_format else "json"
+            try:
+                r = await self.client.post(
+                    "/api/chat",
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "format": fmt,
+                        "stream": False,
+                        "options": {"temperature": 0, "seed": 7},
+                    },
+                )
+            except httpx.ConnectError as e:
+                raise FatalJudgeError(
+                    "Cannot reach Ollama. Start it with `ollama serve`, or pick another judge.provider."
+                ) from e
+            if r.status_code in (400, 500) and isinstance(fmt, dict) and "format" in r.text.lower():
+                self.schema_format = False
+                continue
+            break
         if r.status_code == 404:
-            raise JudgeError(f"Ollama has no model '{self.model}'. Run `ollama pull {self.model}`.")
+            raise FatalJudgeError(f"Ollama has no model '{self.model}'. Run `ollama pull {self.model}`.")
+        if r.status_code >= 500:
+            raise JudgeError(f"Ollama error {r.status_code}: {r.text[:200]}")
         r.raise_for_status()
-        return str(r.json()["message"]["content"])
+        try:
+            return str(r.json()["message"]["content"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise JudgeError(f"Unexpected Ollama reply: {r.text[:200]}") from e
 
     async def aclose(self) -> None:
         await self.client.aclose()

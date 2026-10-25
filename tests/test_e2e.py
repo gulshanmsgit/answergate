@@ -79,7 +79,7 @@ class ScriptedJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def complete(self, system: str, prompt: str) -> str:
+    async def complete(self, system: str, prompt: str, schema: Any = None) -> str:
         self.calls += 1
         if "Split the answer" in prompt:
             return json.dumps(

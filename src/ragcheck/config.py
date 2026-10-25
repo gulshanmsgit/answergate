@@ -42,8 +42,11 @@ class PythonTargetConfig(BaseModel):
 
 class JudgeConfig(BaseModel):
     provider: Literal["ollama", "openai", "anthropic", "none"] = "ollama"
-    model: str = "qwen2.5:7b"
+    # Left out: qwen2.5:7b for ollama, claude-opus-5-5 for anthropic; openai needs it set
+    model: str | None = None
     base_url: str | None = None
+    # Claude only: how hard the judge thinks (low | medium | high | xhigh | max); left out = model default
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     # Name of the environment variable holding the API key (never the key itself)
     api_key_env: str | None = None
     timeout_s: float = 120.0

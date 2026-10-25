@@ -49,7 +49,7 @@ class FnJudge:
         self.fn = fn
         self.calls = 0
 
-    async def complete(self, system: str, prompt: str) -> str:
+    async def complete(self, system: str, prompt: str, schema: Any = None) -> str:
         self.calls += 1
         return str(self.fn(prompt, self.calls))
 

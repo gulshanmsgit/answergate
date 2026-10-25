@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from ragcheck import guardrails as g
 from ragcheck.config import Config
-from ragcheck.judges import CachedJudge, JudgeError
+from ragcheck.judges import CachedJudge, FatalJudgeError, JudgeError
 from ragcheck.metrics import judged
 from ragcheck.metrics.retrieval import retrieval_scores
 from ragcheck.models import CaseResult, GoldenCase, RunResult
@@ -130,6 +130,8 @@ async def run(
             if res.error is None:
                 try:
                     await score_case(res, cfg, judge)
+                except FatalJudgeError:
+                    raise
                 except Exception as e:
                     # A scoring bug must not take down the whole run
                     res.judge_error = f"Scoring failed: {type(e).__name__}: {e}"[:500]
@@ -137,7 +139,15 @@ async def run(
             on_case(res)
         return res
 
-    results = await asyncio.gather(*(one(c) for c in cases))
+    tasks = [asyncio.ensure_future(one(c)) for c in cases]
+    try:
+        results = await asyncio.gather(*tasks)
+    except FatalJudgeError:
+        # The judge can't work at all: stop the remaining questions instead of failing each one
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     metrics, rails = aggregate(results)
     latencies = [r.latency_ms for r in results if r.error is None]
     now = datetime.now(timezone.utc)

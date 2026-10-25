@@ -89,6 +89,23 @@ thresholds:
   guardrails_must_pass: true
 ```
 
+### Choosing a judge
+
+| Provider | Setup | Notes |
+|---|---|---|
+| `ollama` (default) | `ollama pull qwen2.5:7b`, then `ollama serve` | Local; nothing leaves your machine |
+| `anthropic` | `pip install 'ragcheck-ci[anthropic]'`, plus `ANTHROPIC_API_KEY` or `ant auth login` | Official SDK, schema-enforced JSON. Default model `claude-opus-5-5`; set `judge.model: claude-haiku-5-5` and `judge.effort: low` for a cheaper judge |
+| `openai` | `OPENAI_API_KEY` (or `api_key_env`) and `judge.model` | Any OpenAI-compatible endpoint via `base_url` (vLLM, LM Studio, OpenRouter, Azure) |
+| `none` | – | Retrieval metrics and pattern-based guardrails only |
+
+Before the run, one small **preflight** call checks the key, the model and the endpoint. A setup problem stops RAGCheck in seconds with exit code 2, instead of failing every question.
+
+- Rate limits (429), overload (529) and server errors are retried, honouring `Retry-After`.
+- Refusals and truncated replies cost only that one score.
+- If an OpenAI-compatible server rejects `temperature` or JSON-schema output, RAGCheck drops that parameter and carries on.
+
+Live judge tests are off by default, because they cost money. To run them: `RAGCHECK_LIVE=anthropic pytest tests/test_live_judges.py`.
+
 ### How the gate stays fair
 - **Changes are measured only on questions that exist in both runs.** Adding hard new questions never counts as a regression, and deleting questions never hides one. New questions are checked against the absolute minimums.
 - **Incomplete runs never pass.** If the pipeline errors, the judge fails, or a metric from the baseline vanishes (say the judge was switched off), the run fails. It never quietly scores as a pass.

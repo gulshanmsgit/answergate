@@ -1,4 +1,4 @@
-"""LLM judges. Every judge call goes through a disk cache so reruns are cheap and repeatable."""
+"""LLM judges. Every judge call goes through retries, a concurrency limit and a disk cache."""
 
 from __future__ import annotations
 
@@ -15,15 +15,31 @@ import httpx
 
 from ragcheck.config import Config, JudgeConfig
 
+# A JSON schema for the judge's reply; each provider enforces it in its own way
+Schema = dict[str, Any]
+
+# Upper bound on how long a Retry-After header may pause us
+MAX_RETRY_AFTER_S = 60.0
+
 
 class JudgeError(Exception):
-    pass
+    """One judge call failed. The question loses that score; the run goes on."""
+
+    def __init__(self, message: str, retryable: bool = True, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.retry_after = retry_after
+
+
+class FatalJudgeError(Exception):
+    """The judge can't work at all (bad key, unknown model, unreachable server, rejected request).
+    Every call would fail the same way, so the run stops with exit code 2 instead of grading nothing."""
 
 
 class Judge(Protocol):
     name: str
 
-    async def complete(self, system: str, prompt: str) -> str: ...
+    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str: ...
 
     async def aclose(self) -> None: ...
 
@@ -41,17 +57,44 @@ def parse_json(text: str) -> dict[str, Any]:
     raise JudgeError(f"Judge did not return a JSON object: {text[:200]!r}")
 
 
+def retry_after_s(headers: httpx.Headers | Any) -> float | None:
+    """Seconds from a Retry-After header (numeric form), capped so a huge value can't stall the run."""
+    try:
+        value = float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+    return min(max(value, 0.0), MAX_RETRY_AFTER_S)
+
+
 def _transient(e: Exception) -> bool:
     """Worth retrying: bad JSON from a sampling hiccup, timeouts, rate limits and server errors."""
-    if isinstance(e, JudgeError | httpx.TimeoutException | httpx.NetworkError):
+    if isinstance(e, JudgeError):
+        return e.retryable
+    if isinstance(e, httpx.TimeoutException | httpx.NetworkError):
         return True
     if isinstance(e, httpx.HTTPStatusError):
         return e.response.status_code == 429 or e.response.status_code >= 500
     return False
 
 
+def _delay_for(e: Exception, fallback: float) -> float:
+    if isinstance(e, JudgeError) and e.retry_after is not None:
+        return e.retry_after
+    if isinstance(e, httpx.HTTPStatusError):
+        return retry_after_s(e.response.headers) or fallback
+    return fallback
+
+
+PREFLIGHT_SCHEMA: Schema = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+    "additionalProperties": False,
+}
+
+
 class CachedJudge:
-    """Wraps a judge with retries and a content-addressed cache in <workdir>/cache."""
+    """Wraps a judge with retries, a concurrency limit and a content-addressed cache in <workdir>/cache."""
 
     def __init__(
         self,
@@ -93,54 +136,84 @@ class CachedJudge:
             # Caching is an optimisation: a locked or read-only cache must not fail the run
             tmp.unlink(missing_ok=True)
 
-    async def ask_json(self, system: str, prompt: str) -> dict[str, Any]:
-        key = hashlib.sha256(f"{self.identity}\0{system}\0{prompt}".encode()).hexdigest()
+    async def _call(self, system: str, prompt: str, schema: Schema | None) -> dict[str, Any]:
+        delay = self.backoff_s
+        for attempt in range(1, self.attempts + 1):
+            try:
+                async with self.sem:
+                    reply = await self.inner.complete(system, prompt, schema)
+                return parse_json(reply)
+            except FatalJudgeError:
+                raise
+            except Exception as e:
+                if attempt == self.attempts or not _transient(e):
+                    raise JudgeError(f"{type(e).__name__}: {e}"[:300], retryable=False) from e
+                await asyncio.sleep(_delay_for(e, delay))
+                delay *= 2
+        raise AssertionError("unreachable")
+
+    async def ask_json(self, system: str, prompt: str, schema: Schema | None = None) -> dict[str, Any]:
+        schema_key = json.dumps(schema, sort_keys=True) if schema else ""
+        key = hashlib.sha256(f"{self.identity}\0{system}\0{prompt}\0{schema_key}".encode()).hexdigest()
         path = self.dir / key[:2] / f"{key}.json"
         cached = self._read(path) if path.exists() else None
         if cached is not None:
             self.hits += 1
             return cached
         self.misses += 1
-        delay = self.backoff_s
-        for attempt in range(1, self.attempts + 1):
-            try:
-                async with self.sem:
-                    reply = await self.inner.complete(system, prompt)
-                data = parse_json(reply)
-                break
-            except Exception as e:
-                if attempt == self.attempts or not _transient(e):
-                    raise JudgeError(f"{type(e).__name__}: {e}"[:300]) from e
-                await asyncio.sleep(delay)
-                delay *= 2
+        data = await self._call(system, prompt, schema)
         self._write(path, data)
         return data
+
+    async def preflight(self) -> None:
+        """One tiny uncached call before the run, so a bad key or model fails in seconds, not per question."""
+        try:
+            await self._call(
+                "You are a health check. Reply in JSON.", 'Reply with {"ok": true}.', PREFLIGHT_SCHEMA
+            )
+        except FatalJudgeError:
+            raise
+        except JudgeError as e:
+            raise FatalJudgeError(f"The judge ({self.name}) is not answering usably: {e}") from e
 
     async def aclose(self) -> None:
         await self.inner.aclose()
 
 
+# Per-provider default model when judge.model is left out
+DEFAULT_MODELS = {"ollama": "qwen2.5:7b", "anthropic": "claude-opus-5-5"}
+
+
+def resolve_model(j: JudgeConfig) -> str:
+    if j.model:
+        return j.model
+    if j.provider in DEFAULT_MODELS:
+        return DEFAULT_MODELS[j.provider]
+    raise FatalJudgeError(f"Set judge.model for the {j.provider} judge, e.g. the model your endpoint serves.")
+
+
 def cache_identity(j: JudgeConfig) -> str:
-    return f"{j.provider}|{j.model}|{j.base_url or 'default'}"
+    return f"{j.provider}|{resolve_model(j)}|{j.base_url or 'default'}|{j.effort or ''}"
 
 
 def make_judge(cfg: Config) -> CachedJudge | None:
     j = cfg.judge
     if j.provider == "none":
         return None
+    model = resolve_model(j)
     inner: Judge
     if j.provider == "ollama":
         from ragcheck.judges.ollama import OllamaJudge
 
-        inner = OllamaJudge(j)
+        inner = OllamaJudge(j, model)
     elif j.provider == "openai":
         from ragcheck.judges.openai import OpenAIJudge
 
-        inner = OpenAIJudge(j)
+        inner = OpenAIJudge(j, model)
     else:
         from ragcheck.judges.anthropic import AnthropicJudge
 
-        inner = AnthropicJudge(j)
+        inner = AnthropicJudge(j, model)
     return CachedJudge(
         inner, cfg.path(cfg.workdir) / "cache", concurrency=j.concurrency, identity=cache_identity(j)
     )

@@ -18,7 +18,7 @@ import typer
 from ragcheck import __version__
 from ragcheck.baseline import Verdict, evaluate, latest_run, load_run, save_baseline, save_run
 from ragcheck.config import Config, ConfigError, load_config, load_golden
-from ragcheck.judges import JudgeError, make_judge
+from ragcheck.judges import FatalJudgeError, JudgeError, make_judge
 from ragcheck.models import CaseResult, RunResult
 from ragcheck.report import label, write_reports
 from ragcheck.runner import run as run_pipeline
@@ -178,7 +178,7 @@ def run(
         cases = load_golden(cfg.path(cfg.golden_set))
         target = make_target(cfg)
         judge = make_judge(cfg)
-    except (ConfigError, JudgeError) as e:
+    except (ConfigError, JudgeError, FatalJudgeError) as e:
         _die(str(e))
 
     done = 0
@@ -196,6 +196,8 @@ def run(
 
     async def go() -> RunResult:
         try:
+            if judge:
+                await judge.preflight()
             return await run_pipeline(cfg, cases, target, judge, label_, tick)
         finally:
             await target.aclose()
@@ -207,7 +209,11 @@ def run(
     base = _read_run(base_path, "baseline") if base_path.exists() else None
 
     typer.echo(f"RAGCheck {__version__} · {len(cases)} questions · judge: {judge.name if judge else 'none'}")
-    result = asyncio.run(go())
+    try:
+        result = asyncio.run(go())
+    except FatalJudgeError as e:
+        typer.echo("")
+        _die(f"Judge setup problem: {e}")
     typer.echo("")
 
     workdir = cfg.path(cfg.workdir)

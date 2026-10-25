@@ -106,7 +106,7 @@ class RecordingJudge:
         self.active = 0
         self.peak = 0
 
-    async def complete(self, system: str, prompt: str) -> str:
+    async def complete(self, system: str, prompt: str, schema: Any = None) -> str:
         self.active += 1
         self.peak = max(self.peak, self.active)
         await asyncio.sleep(0.05)
