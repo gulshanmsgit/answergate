@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import os
 import shutil
 import sys
+import traceback
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, NoReturn, ParamSpec, TypeVar
 
 import typer
 
@@ -45,6 +49,42 @@ ConfigOpt = Annotated[Path, typer.Option("--config", "-c", help="Path to ragchec
 def _die(msg: str) -> NoReturn:
     typer.secho(msg, fg=typer.colors.RED, err=True)
     raise typer.Exit(EXIT_ERROR)
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _guard(fn: Callable[P, R]) -> Callable[P, R]:
+    """Turn an unexpected crash into exit code 2, so CI never mistakes a RAGCheck bug for a regression."""
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            # Exit codes, aborts and usage errors are the CLI framework's own control flow
+            if type(e).__module__.startswith(("typer", "click")):
+                raise
+            typer.secho(f"RAGCheck crashed: {type(e).__name__}: {e}", fg=typer.colors.RED, err=True)
+            if os.environ.get("RAGCHECK_DEBUG"):
+                traceback.print_exc()
+            else:
+                typer.echo("Set RAGCHECK_DEBUG=1 to see the traceback.", err=True)
+            raise typer.Exit(EXIT_ERROR) from e
+
+    return wrapper
+
+
+def _read_run(path: Path, what: str) -> RunResult:
+    try:
+        return load_run(path)
+    except (OSError, ValueError) as e:
+        reason = str(e).splitlines()[0] if str(e) else type(e).__name__
+        _die(
+            f"Cannot read the {what} at {path}: {reason}\n"
+            "Delete it, or set a new one with `ragcheck baseline`."
+        )
 
 
 def _load(config: Path) -> Config:
@@ -88,6 +128,7 @@ def _print_verdict(run: RunResult, verdict: Verdict) -> None:
 
 
 @app.command()
+@_guard
 def init(
     directory: Annotated[Path, typer.Argument(help="Where to create the files")] = Path("."),
     force: Annotated[bool, typer.Option(help="Overwrite existing files")] = False,
@@ -113,6 +154,7 @@ def init(
 
 
 @app.command()
+@_guard
 def run(
     config: ConfigOpt = Path("ragcheck.yaml"),
     label_: Annotated[
@@ -160,14 +202,16 @@ def run(
             if judge:
                 await judge.aclose()
 
+    base_path = baseline or _baseline_path(cfg)
+    # Read the baseline before calling the pipeline, so a bad file fails fast
+    base = _read_run(base_path, "baseline") if base_path.exists() else None
+
     typer.echo(f"RAGCheck {__version__} · {len(cases)} questions · judge: {judge.name if judge else 'none'}")
     result = asyncio.run(go())
     typer.echo("")
 
     workdir = cfg.path(cfg.workdir)
     saved = save_run(result, workdir)
-    base_path = baseline or _baseline_path(cfg)
-    base = load_run(base_path) if base_path.exists() else None
     if base is None:
         typer.secho("  No baseline yet: only absolute minimums are checked.", fg=typer.colors.YELLOW)
 
@@ -181,16 +225,21 @@ def run(
         typer.echo(f"  judge cache: {judge.hits} hits, {judge.misses} new calls")
 
     if save_as_baseline:
-        if verdict.passed or base is None:
+        if verdict.passed:
             save_baseline(result, _baseline_path(cfg))
             typer.echo(f"  saved as baseline: {_baseline_path(cfg)}")
         else:
-            typer.secho("  not saved as baseline, because the run failed", fg=typer.colors.YELLOW)
+            typer.secho(
+                "  not saved as baseline, because the run failed. "
+                "To accept it anyway, run `ragcheck baseline`.",
+                fg=typer.colors.YELLOW,
+            )
 
     raise typer.Exit(0 if verdict.passed else EXIT_FAILED)
 
 
 @app.command()
+@_guard
 def compare(
     current: Annotated[Path | None, typer.Argument(help="Run file (default: the latest run)")] = None,
     baseline: Annotated[Path | None, typer.Option(help="Baseline run file")] = None,
@@ -207,7 +256,7 @@ def compare(
     base_path = baseline or _baseline_path(cfg)
     if not base_path.exists():
         _die(f"Baseline not found: {base_path}. Save one with `ragcheck baseline`.")
-    cur, base = load_run(cur_path), load_run(base_path)
+    cur, base = _read_run(cur_path, "run"), _read_run(base_path, "baseline")
     verdict = evaluate(cur, base, cfg.thresholds)
     _print_verdict(cur, verdict)
     write_reports(cur, verdict, base, html, md)
@@ -215,6 +264,7 @@ def compare(
 
 
 @app.command("baseline")
+@_guard
 def set_baseline(
     run_file: Annotated[Path | None, typer.Argument(help="Run file (default: the latest run)")] = None,
     config: ConfigOpt = Path("ragcheck.yaml"),
@@ -224,11 +274,12 @@ def set_baseline(
     src = run_file or latest_run(cfg.path(cfg.workdir))
     if src is None:
         _die("No runs yet. Run `ragcheck run` first.")
-    save_baseline(load_run(src), _baseline_path(cfg))
+    save_baseline(_read_run(src, "run"), _baseline_path(cfg))
     typer.echo(f"Baseline set to {src.name} → {_baseline_path(cfg)}")
 
 
 @app.command()
+@_guard
 def version() -> None:
     """Print the version."""
     typer.echo(__version__)

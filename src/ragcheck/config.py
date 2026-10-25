@@ -75,9 +75,12 @@ class Config(BaseModel):
         ]
     )
     # Top-k retrieved contexts considered by the retrieval metrics
-    k: int = 5
-    concurrency: int = 4
-    retries: int = 2
+    k: int = Field(default=5, ge=1)
+    concurrency: int = Field(default=4, ge=1)
+    # Extra attempts after a pipeline call fails or times out
+    retries: int = Field(default=2, ge=0)
+    # A pipeline call taking longer than this counts as an error for that question
+    target_timeout_s: float = Field(default=120.0, gt=0)
     thresholds: Thresholds = Field(default_factory=Thresholds)
     # Strings the PII check ignores, e.g. your public support email
     pii_allow: list[str] = Field(default_factory=list)
@@ -129,14 +132,28 @@ def load_config(path: str | Path) -> Config:
 def load_golden(path: Path) -> list[GoldenCase]:
     if not path.exists():
         raise ConfigError(f"Golden set not found: {path}")
+    # utf-8-sig: Windows editors often save a byte-order mark that breaks the first line
+    text = path.read_text(encoding="utf-8-sig")
     cases: list[GoldenCase] = []
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip() or line.lstrip().startswith("//"):
-            continue
+    if text.lstrip().startswith("["):
+        # A plain JSON array is accepted too
         try:
-            cases.append(GoldenCase.model_validate_json(line))
-        except ValidationError as e:
-            raise ConfigError(f"{path.name} line {n}: {e}") from e
+            rows = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ConfigError(f"{path.name} is not valid JSON: {e}") from e
+        for n, row in enumerate(rows, 1):
+            try:
+                cases.append(GoldenCase.model_validate(row))
+            except ValidationError as e:
+                raise ConfigError(f"{path.name} item {n}: {e}") from e
+    else:
+        for n, line in enumerate(text.splitlines(), 1):
+            if not line.strip() or line.lstrip().startswith("//"):
+                continue
+            try:
+                cases.append(GoldenCase.model_validate_json(line))
+            except ValidationError as e:
+                raise ConfigError(f"{path.name} line {n}: {e}") from e
     ids = [c.id for c in cases]
     dupes = {i for i in ids if ids.count(i) > 1}
     if dupes:

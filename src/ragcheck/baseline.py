@@ -39,9 +39,14 @@ class MetricDelta:
     name: str
     current: float | None
     baseline: float | None
+    # Change measured only on questions present in both runs (None: plain difference of the means)
+    paired: float | None = None
+    paired_n: int = 0
 
     @property
     def delta(self) -> float | None:
+        if self.paired is not None:
+            return round(self.paired, 4)
         if self.current is None or self.baseline is None:
             return None
         return round(self.current - self.baseline, 4)
@@ -71,6 +76,24 @@ class Verdict:
         return list(dict.fromkeys(r.case_id for r in self.regressions))
 
 
+# Below this many questions, one question moves a mean by a noticeable step
+SMALL_SET = 20
+
+
+def _paired(current: RunResult, baseline: RunResult, name: str) -> tuple[float, int] | None:
+    """Mean change of a metric over the questions both runs scored, so adding or removing
+    golden questions never shows up as a regression or hides one."""
+    before = {r.case.id: r.scores[name] for r in baseline.results if name in r.scores}
+    pairs = [
+        (r.scores[name], before[r.case.id])
+        for r in current.results
+        if name in r.scores and r.case.id in before
+    ]
+    if not pairs:
+        return None
+    return sum(c - b for c, b in pairs) / len(pairs), len(pairs)
+
+
 def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> Verdict:
     v = Verdict(passed=True)
     base_m = baseline.metrics if baseline else {}
@@ -78,17 +101,21 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
 
     for name in sorted(set(current.metrics) | set(base_m)):
         d = MetricDelta(name, current.metrics.get(name), base_m.get(name))
+        if baseline and d.current is not None and d.baseline is not None:
+            paired = _paired(current, baseline, name)
+            if paired:
+                d.paired, d.paired_n = paired
         v.metrics.append(d)
         floor = t.min.get(name)
         if floor is not None and d.current is not None and d.current < floor:
             v.failures.append(f"{name} is {d.current:.3f}, below the minimum {floor:.3f}")
         allowed = t.max_drop.get(name, t.default_max_drop)
         if allowed is not None and d.delta is not None and -d.delta > allowed:
-            v.failures.append(
-                f"{name} dropped {-d.delta:.3f} (from {d.baseline:.3f} to {d.current:.3f}); allowed {allowed:.3f}"
-            )
+            on = f" on the {d.paired_n} questions in both runs" if d.paired is not None else ""
+            v.failures.append(f"{name} dropped {-d.delta:.3f}{on}; allowed {allowed:.3f}")
         if d.current is None and d.baseline is not None:
-            v.warnings.append(f"{name} was measured in the baseline but not in this run")
+            # A metric silently vanishing (judge switched off, every judge call failing) must not pass
+            v.failures.append(f"{name} was measured in the baseline but not in this run (is the judge off?)")
 
     for name in t.min:
         if name not in current.metrics:
@@ -102,14 +129,28 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
             v.failures.append(f"Guardrail '{name}' failed on {failed} case(s)")
 
     if current.errors:
-        v.failures.append(f"{current.errors} case(s) errored (the pipeline or the judge failed)")
+        v.failures.append(f"The pipeline failed on {current.errors} question(s); see the report for errors")
+    if current.judge_errors:
+        v.failures.append(f"The judge failed on {current.judge_errors} question(s), so scores are incomplete")
 
     if baseline:
         if baseline.config_hash and baseline.config_hash != current.config_hash:
             v.warnings.append(
                 "Scoring settings (judge, metrics or k) differ from the baseline; deltas may not be like-for-like"
             )
+        now_ids = {r.case.id for r in current.results}
+        then_ids = {r.case.id for r in baseline.results}
+        if added := len(now_ids - then_ids):
+            v.warnings.append(f"{added} new question(s) not in the baseline: checked against minimums only")
+        if removed := len(then_ids - now_ids):
+            v.warnings.append(f"{removed} baseline question(s) are no longer in the golden set")
         _case_diffs(current, baseline, v)
+
+    if 0 < len(current.results) < SMALL_SET:
+        n = len(current.results)
+        v.warnings.append(
+            f"Only {n} questions: one question can move a metric by up to {1 / n:.2f}. Use 20+ for a stable gate."
+        )
 
     v.passed = not v.failures
     return v

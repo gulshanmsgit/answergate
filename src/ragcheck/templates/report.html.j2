@@ -112,7 +112,7 @@
     {% set failed_rails = r.guardrails.items()|selectattr(1, "false")|map(attribute=0)|list %}
     <details class="case"{% if r.case.id in regressed %} open{% endif %}>
       <summary>
-        <span class="dot{% if r.case.id in regressed or failed_rails %} reg{% elif r.error %} err{% endif %}"></span>
+        <span class="dot{% if r.case.id in regressed or failed_rails %} reg{% elif r.error or r.judge_error %} err{% endif %}"></span>
         <span class="q"><code>{{ r.case.id }}</code>{{ r.case.question }}</span>
         <span class="chips">
           {% for name, s in r.scores.items() %}
@@ -120,11 +120,13 @@
             <span class="chip{% if old is not none and old - s >= 0.25 %} bad{% endif %}">{{ name|label }} {{ "%.2f"|format(s) }}</span>
           {% endfor %}
           {% for name in failed_rails %}<span class="chip bad">{{ name|label }} ✕</span>{% endfor %}
-          {% if r.error %}<span class="chip bad">error</span>{% endif %}
+          {% if r.error %}<span class="chip bad">pipeline error</span>{% endif %}
+          {% if r.judge_error %}<span class="chip bad">judge error</span>{% endif %}
         </span>
       </summary>
       <div class="body">
-        {% if r.error %}<div><div class="label">Error</div>{{ r.error }}</div>{% endif %}
+        {% if r.error %}<div><div class="label">Pipeline error</div>{{ r.error }}</div>{% endif %}
+        {% if r.judge_error %}<div><div class="label">Judge error · some scores missing</div>{{ r.judge_error }}</div>{% endif %}
         <div class="cols">
           <div>
             <div class="label">Answer · this run</div>

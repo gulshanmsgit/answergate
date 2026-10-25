@@ -66,7 +66,11 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
 
 
 def html(run: RunResult, verdict: Verdict, baseline: RunResult | None) -> str:
-    env = Environment(loader=PackageLoader("ragcheck", "templates"), autoescape=select_autoescape())
+    env = Environment(
+        loader=PackageLoader("ragcheck", "templates"),
+        # Answers and contexts are untrusted text; the template's .j2 suffix would disable the default
+        autoescape=select_autoescape(enabled_extensions=("html", "j2"), default=True),
+    )
     env.filters["label"] = label
     env.filters["delta"] = _fmt_delta
     before = {r.case.id: r for r in baseline.results} if baseline else {}

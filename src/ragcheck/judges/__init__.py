@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Protocol
+
+import httpx
 
 from ragcheck.config import Config
 
@@ -24,40 +29,74 @@ class Judge(Protocol):
 
 
 def parse_json(text: str) -> dict[str, Any]:
-    """Pull the first JSON object out of a model reply (tolerates code fences and chatter)."""
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise JudgeError(f"Judge did not return JSON: {text[:200]!r}")
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError as e:
-        raise JudgeError(f"Judge returned invalid JSON: {text[:200]!r}") from e
-    if not isinstance(data, dict):
-        raise JudgeError("Judge JSON must be an object")
-    return data
+    """Pull the first JSON object out of a model reply (tolerates code fences and chatter around it)."""
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r"\{", text):
+        try:
+            data, _ = decoder.raw_decode(text, m.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    raise JudgeError(f"Judge did not return a JSON object: {text[:200]!r}")
+
+
+def _transient(e: Exception) -> bool:
+    """Worth retrying: bad JSON from a sampling hiccup, timeouts, rate limits and server errors."""
+    if isinstance(e, JudgeError | httpx.TimeoutException | httpx.NetworkError):
+        return True
+    if isinstance(e, httpx.HTTPStatusError):
+        return e.response.status_code == 429 or e.response.status_code >= 500
+    return False
 
 
 class CachedJudge:
-    """Wraps a judge with a content-addressed cache in <workdir>/cache."""
+    """Wraps a judge with retries and a content-addressed cache in <workdir>/cache."""
 
-    def __init__(self, inner: Judge, cache_dir: Path) -> None:
+    def __init__(self, inner: Judge, cache_dir: Path, attempts: int = 3, backoff_s: float = 0.5) -> None:
         self.inner = inner
         self.name = inner.name
         self.dir = cache_dir
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.attempts = max(1, attempts)
+        self.backoff_s = backoff_s
         self.hits = 0
         self.misses = 0
 
+    def _read(self, path: Path) -> dict[str, Any] | None:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # A half-written or corrupted entry is just a cache miss
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _write(self, path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(exist_ok=True)
+        # Write then rename, so a crash never leaves a truncated entry behind
+        tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, path)
+
     async def ask_json(self, system: str, prompt: str) -> dict[str, Any]:
         key = hashlib.sha256(f"{self.name}\0{system}\0{prompt}".encode()).hexdigest()
-        path = self.dir / f"{key[:2]}" / f"{key}.json"
-        if path.exists():
+        path = self.dir / key[:2] / f"{key}.json"
+        cached = self._read(path) if path.exists() else None
+        if cached is not None:
             self.hits += 1
-            return dict(json.loads(path.read_text(encoding="utf-8")))
+            return cached
         self.misses += 1
-        data = parse_json(await self.inner.complete(system, prompt))
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps(data), encoding="utf-8")
+        delay = self.backoff_s
+        for attempt in range(1, self.attempts + 1):
+            try:
+                data = parse_json(await self.inner.complete(system, prompt))
+                break
+            except Exception as e:
+                if attempt == self.attempts or not _transient(e):
+                    raise JudgeError(f"{type(e).__name__}: {e}"[:300]) from e
+                await asyncio.sleep(delay)
+                delay *= 2
+        self._write(path, data)
         return data
 
     async def aclose(self) -> None:

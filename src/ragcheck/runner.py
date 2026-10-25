@@ -6,7 +6,7 @@ import asyncio
 import statistics
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from ragcheck import guardrails as g
@@ -20,20 +20,24 @@ from ragcheck.targets import Target
 Progress = Callable[[CaseResult], None]
 
 
-async def _ask(target: Target, case: GoldenCase, retries: int) -> tuple[CaseResult, float]:
+async def _ask(target: Target, case: GoldenCase, retries: int, timeout_s: float) -> CaseResult:
     delay = 0.5
+    error = ""
     for attempt in range(retries + 1):
         start = time.perf_counter()
         try:
-            resp = await target.ask(case.question)
+            resp = await asyncio.wait_for(target.ask(case.question), timeout_s)
             ms = (time.perf_counter() - start) * 1000
-            return CaseResult(case=case, answer=resp.answer, contexts=resp.contexts, latency_ms=ms), ms
+            return CaseResult(case=case, answer=resp.answer, contexts=resp.contexts, latency_ms=ms)
+        except asyncio.TimeoutError:
+            error = f"TimeoutError: no answer within {timeout_s:g}s"
         except Exception as e:
-            if attempt == retries:
-                return CaseResult(case=case, error=f"{type(e).__name__}: {e}"), 0.0
+            error = f"{type(e).__name__}: {e}"[:500]
+        if attempt < retries:
             await asyncio.sleep(delay)
             delay *= 2
-    raise AssertionError("unreachable")
+    tries = f" (after {retries + 1} attempts)" if retries else ""
+    return CaseResult(case=case, error=error + tries)
 
 
 async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) -> None:
@@ -55,11 +59,13 @@ async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) ->
             res.notes["injection"] = f"Answer followed a planted instruction (canary {case.canary})"
 
     if case.expect_refusal:
-        refused = (
-            await judged.is_refusal(judge, case.question, res.answer)
-            if judge
-            else g.looks_like_refusal(res.answer)
-        )
+        refused = g.looks_like_refusal(res.answer)
+        if judge:
+            try:
+                refused = await judged.is_refusal(judge, case.question, res.answer)
+            except JudgeError as e:
+                # The heuristic above stands in, and the run records that the judge failed
+                res.judge_error = f"refusal: {e}"
         res.guardrails["refusal"] = refused
         if not refused:
             res.notes["refusal"] = "Answered a question it should have declined"
@@ -68,21 +74,23 @@ async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) ->
 
     if judge is None:
         return
-    try:
-        if "faithfulness" in wanted:
-            res.scores["faithfulness"], res.notes["faithfulness"] = await judged.faithfulness(
-                judge, res.answer, res.contexts[: cfg.k]
-            )
-        if "relevance" in wanted:
-            res.scores["relevance"], res.notes["relevance"] = await judged.relevance(
-                judge, case.question, res.answer
-            )
-        if "correctness" in wanted and case.reference_answer:
-            res.scores["correctness"], res.notes["correctness"] = await judged.correctness(
-                judge, case.question, res.answer, case.reference_answer
-            )
-    except JudgeError as e:
-        res.error = f"Judge: {e}"
+    checks: list[tuple[str, Callable[[], Awaitable[tuple[float, str]]]]] = []
+    if "faithfulness" in wanted:
+        checks.append(("faithfulness", lambda: judged.faithfulness(judge, res.answer, res.contexts[: cfg.k])))
+    if "relevance" in wanted:
+        checks.append(("relevance", lambda: judged.relevance(judge, case.question, res.answer)))
+    if "correctness" in wanted and case.reference_answer:
+        ref = case.reference_answer
+        checks.append(("correctness", lambda: judged.correctness(judge, case.question, res.answer, ref)))
+    failed: list[str] = []
+    # Each metric stands alone: one bad judge reply loses that score, not the others
+    for name, check in checks:
+        try:
+            res.scores[name], res.notes[name] = await check()
+        except JudgeError as e:
+            failed.append(f"{name}: {e}")
+    if failed:
+        res.judge_error = "; ".join(failed)[:500]
 
 
 def aggregate(results: list[CaseResult]) -> tuple[dict[str, float], dict[str, float]]:
@@ -118,9 +126,13 @@ async def run(
 
     async def one(case: GoldenCase) -> CaseResult:
         async with sem:
-            res, _ = await _ask(target, case, cfg.retries)
+            res = await _ask(target, case, cfg.retries, cfg.target_timeout_s)
             if res.error is None:
-                await score_case(res, cfg, judge)
+                try:
+                    await score_case(res, cfg, judge)
+                except Exception as e:
+                    # A scoring bug must not take down the whole run
+                    res.judge_error = f"Scoring failed: {type(e).__name__}: {e}"[:500]
         if on_case:
             on_case(res)
         return res
@@ -140,4 +152,5 @@ async def run(
         latency_p50_ms=round(_percentile(latencies, 0.5), 1),
         latency_p95_ms=round(_percentile(latencies, 0.95), 1),
         errors=sum(1 for r in results if r.error),
+        judge_errors=sum(1 for r in results if r.judge_error),
     )

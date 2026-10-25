@@ -45,6 +45,8 @@ def to_response(
         raw_contexts = dig(data, contexts_path)
     except ResponseShapeError:
         raw_contexts = []
+    if raw_contexts is None:
+        raw_contexts = []
     if not isinstance(raw_contexts, list):
         raise ResponseShapeError(f"'{contexts_path}' must be a list")
 

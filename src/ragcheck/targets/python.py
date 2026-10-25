@@ -22,8 +22,9 @@ def load_callable(spec: str, root: Path) -> Callable[..., Any]:
         sys.path.insert(0, str(root))
     try:
         module = importlib.import_module(module_name)
-    except ImportError as e:
-        raise ConfigError(f"Cannot import '{module_name}': {e}") from e
+    except Exception as e:
+        # Any error while importing the user's module is a setup problem, not a quality result
+        raise ConfigError(f"Cannot import '{module_name}': {type(e).__name__}: {e}") from e
     fn: object = getattr(module, attr, None)
     if not callable(fn):
         raise ConfigError(f"'{attr}' in '{module_name}' is not callable")

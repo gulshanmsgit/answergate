@@ -89,6 +89,13 @@ thresholds:
   guardrails_must_pass: true
 ```
 
+### How the gate stays fair
+- **Changes are measured only on questions that exist in both runs.** Adding hard new questions never counts as a regression, and deleting questions never hides one. New questions are checked against the absolute minimums.
+- **Incomplete runs never pass.** If the pipeline errors, the judge fails, or a metric from the baseline vanishes (say the judge was switched off), the run fails. It never quietly scores as a pass.
+- **Flaky calls are retried with backoff:** pipeline calls (`retries`, `target_timeout_s`) and judge calls (timeouts, 429s, 5xx errors, malformed JSON). Corrupted cache entries are ignored.
+- **A small golden set gets a warning.** With fewer than 20 questions, one question moves a metric by 5% or more.
+- **Only a passing run can become the baseline** with `--save-baseline`. To accept a failing one on purpose, use `ragcheck baseline`.
+
 ## In CI (GitHub Actions)
 
 Commit `.ragcheck/baseline.json` from your main branch. Then, on every pull request:

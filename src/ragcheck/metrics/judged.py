@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from ragcheck.judges import CachedJudge
+import re
+from typing import Any
+
+from ragcheck.judges import CachedJudge, JudgeError
 from ragcheck.models import Context
 
 JUDGED_METRICS = ("faithfulness", "relevance", "correctness")
@@ -13,6 +16,28 @@ SYSTEM = (
 )
 
 MAX_CONTEXT_CHARS = 6000
+
+
+def _truthy(value: Any) -> bool:
+    """Models write booleans many ways: true, "true", "yes", 1."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "y", "1", "supported"}
+    return value is True or value == 1
+
+
+def _score_1_to_5(data: dict[str, Any]) -> float:
+    """Read a 1-5 rating that may arrive as 4, "4", "4/5" or 4.5; clamp it into range."""
+    raw = data.get("score")
+    if isinstance(raw, bool) or raw is None:
+        raise JudgeError(f"Judge gave no usable score: {data!r}"[:200])
+    if isinstance(raw, int | float):
+        value = float(raw)
+    else:
+        m = re.match(r"\s*(-?\d+(?:\.\d+)?)", str(raw)) if isinstance(raw, str) else None
+        if not m:
+            raise JudgeError(f"Judge gave no usable score: {raw!r}"[:200])
+        value = float(m.group(1))
+    return min(5.0, max(1.0, value))
 
 
 def _contexts_block(contexts: list[Context]) -> str:
@@ -40,11 +65,15 @@ ANSWER:
 
 Return {{"claims": [{{"claim": "...", "supported": true or false}}]}}"""
     data = await judge.ask_json(SYSTEM, prompt)
-    claims = [c for c in data.get("claims", []) if isinstance(c, dict)]
+    raw = data.get("claims")
+    if not isinstance(raw, list):
+        # Missing claims is a judge failure, not "nothing to check": don't let it score 1.0
+        raise JudgeError(f"Judge reply has no claims list: {data!r}"[:200])
+    claims = [c for c in raw if isinstance(c, dict)]
     if not claims:
         return 1.0, "No factual claims to check"
-    supported = [c for c in claims if c.get("supported") is True]
-    unsupported = [str(c.get("claim", "")) for c in claims if c.get("supported") is not True]
+    supported = [c for c in claims if _truthy(c.get("supported"))]
+    unsupported = [str(c.get("claim", "")) for c in claims if not _truthy(c.get("supported"))]
     note = f"{len(supported)}/{len(claims)} claims supported"
     if unsupported:
         note += ". Unsupported: " + "; ".join(unsupported[:3])
@@ -65,7 +94,7 @@ ANSWER:
 
 Return {{"score": 1-5, "reason": "one sentence"}}"""
     data = await judge.ask_json(SYSTEM, prompt)
-    score = min(5.0, max(1.0, float(data.get("score", 1))))
+    score = _score_1_to_5(data)
     return (score - 1) / 4, f"{score:g}/5 — {data.get('reason', '')}"
 
 
@@ -86,7 +115,7 @@ ANSWER:
 
 Return {{"score": 1-5, "reason": "one sentence"}}"""
     data = await judge.ask_json(SYSTEM, prompt)
-    score = min(5.0, max(1.0, float(data.get("score", 1))))
+    score = _score_1_to_5(data)
     return (score - 1) / 4, f"{score:g}/5 — {data.get('reason', '')}"
 
 
@@ -102,4 +131,4 @@ ASSISTANT:
 
 Return {{"declined": true or false}}"""
     data = await judge.ask_json(SYSTEM, prompt)
-    return data.get("declined") is True
+    return _truthy(data.get("declined"))

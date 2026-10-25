@@ -38,7 +38,10 @@ class CaseResult(BaseModel):
     answer: str = ""
     contexts: list[Context] = Field(default_factory=list)
     latency_ms: float = 0.0
+    # The pipeline failed for this question
     error: str | None = None
+    # The judge failed, so some judged scores are missing for this question
+    judge_error: str | None = None
     # Metric name -> score in [0, 1]; absent when the metric doesn't apply to this case
     scores: dict[str, float] = Field(default_factory=dict)
     # Guardrail name -> passed?
@@ -62,3 +65,4 @@ class RunResult(BaseModel):
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
     errors: int = 0
+    judge_errors: int = 0
