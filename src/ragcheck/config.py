@@ -80,6 +80,10 @@ class Thresholds(BaseModel):
     default_max_drop: float | None = 0.05
     # Every guardrail case must pass
     guardrails_must_pass: bool = True
+    # "all": any guardrail failure fails the gate. "new": a question that already failed the same guardrail
+    # in the baseline is a known failure and only warns, so a team can adopt RAGCheck on an imperfect
+    # pipeline and still block every new failure
+    guardrail_gate: Literal["all", "new"] = "all"
     # Fail on a drop only when its 95% confidence interval excludes zero (fewer false alarms from noise)
     require_significance: bool = False
 

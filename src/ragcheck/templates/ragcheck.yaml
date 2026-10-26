@@ -43,5 +43,6 @@ thresholds:
   max_drop:
     relevance: 0.1
   guardrails_must_pass: true
+  # guardrail_gate: new        # known guardrail failures in the baseline only warn; new ones still fail
 
 # pii_allow: ["support@yourcompany.com"]

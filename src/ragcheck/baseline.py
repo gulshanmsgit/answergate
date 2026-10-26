@@ -153,8 +153,17 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
         d = MetricDelta(name, current.guardrails.get(name), base_g.get(name))
         v.guardrails.append(d)
         if t.guardrails_must_pass and d.current is not None and d.current < 1.0:
-            failed = sum(1 for r in current.results if r.guardrails.get(name) is False)
-            v.failures.append(f"Guardrail '{name}' failed on {failed} case(s)")
+            failing = [r.case.id for r in current.results if r.guardrails.get(name) is False]
+            new = ""
+            if t.guardrail_gate == "new" and baseline:
+                known = {r.case.id for r in baseline.results if r.guardrails.get(name) is False}
+                if still := sum(1 for cid in failing if cid in known):
+                    v.warnings.append(
+                        f"Guardrail '{name}' still fails on {still} known case(s) from the baseline"
+                    )
+                failing, new = [cid for cid in failing if cid not in known], "new "
+            if failing:
+                v.failures.append(f"Guardrail '{name}' failed on {len(failing)} {new}case(s)")
 
     if current.errors:
         v.failures.append(f"The pipeline failed on {current.errors} question(s); see the report for errors")

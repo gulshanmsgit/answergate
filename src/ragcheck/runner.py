@@ -155,7 +155,7 @@ class RateLimiter:
         if not self.interval:
             return
         async with self.lock:
-            now = time.monotonic()
+            now = time.perf_counter()  # monotonic ticks only every ~16 ms on Windows
             delay = self.next_at - now
             self.next_at = max(now, self.next_at) + self.interval
         if delay > 0:

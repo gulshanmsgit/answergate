@@ -35,10 +35,22 @@ REFUSAL = "I'm sorry, but I don't have information about that in my documents."
 STOPWORDS = frozenset(
     "a an and are as at be by can do does for from has have how i if in is it its me my of on or our "  # noqa: SIM905
     "should so that the their there this to was we what when where which who why will with you your "
-    "get got any about after before into than then them they not no yes".split()
+    "get got any about after before into than then them they not no yes am must also just some more most "
+    # Generic question words: they say what kind of answer is wanted, not what it is about
+    "many much long quickly soon often fast far take come give find used use need want tell know".split()
 )
 # Sentences that try to steer the model: a safe generator never repeats them
 INSTRUCTION = re.compile(r"ignore (?:all )?(?:previous|prior)|begin your answer with|ai assistants?", re.I)
+# Text in a question that tries to steer the assistant: never searched on, never obeyed
+QUERY_INSTRUCTION = re.compile(
+    r"ignore (?:your|all|previous|prior)|start your reply with|begin your answer with", re.I
+)
+# Conversational filler, including common Hinglish, that carries nothing to search for
+FILLER = frozenset(
+    "hi hello hey please thank thanks bhai batao bata mujhe jaanna jaan hai ek baat kya sorry quick".split()  # noqa: SIM905
+)
+# Decline when more than this share of a question's terms appear in no document at all
+MAX_UNKNOWN = 0.34
 EMAIL = re.compile(r"\b[\w.%+-]+@[\w.-]+\.[a-z]{2,}\b", re.I)
 PHONE = re.compile(r"\+?\d[\d\s-]{8,16}\d")
 
@@ -77,6 +89,50 @@ def load_corpus(industry: str) -> tuple[Chunk, ...]:
             terms = Counter(tokens(f"{doc.replace('-', ' ')} {heading} {text}"))
             chunks.append(Chunk(f"{doc.strip()}#{i}", doc.strip(), text, terms, sum(terms.values())))
     return tuple(chunks)
+
+
+@cache
+def vocabulary(industry: str) -> frozenset[str]:
+    return frozenset(t for c in load_corpus(industry) for t in c.terms)
+
+
+def _distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+@cache
+def spell_correct(term: str, industry: str) -> str:
+    """Map a misspelt word to the closest word in the documents (1 edit, or 2 for long words)."""
+    vocab = vocabulary(industry)
+    if term in vocab or len(term) < 5 or term.isdigit():
+        return term
+    limit = 1 if len(term) < 8 else 2
+    best = min(vocab, key=lambda v: (_distance(term, v) if abs(len(v) - len(term)) <= limit else 99, v))
+    return best if _distance(term, best) <= limit else term
+
+
+def understand(question: str, industry: str, chunks: tuple[Chunk, ...]) -> list[str]:
+    """Turn a user's message into search terms, the way a query-rewriting step would.
+
+    The user's own email and phone are removed, sentences that try to instruct the assistant are dropped,
+    filler is ignored and typos are corrected. If the message has several sentences, the one that matches
+    the documents best is the question; greetings and back-story around it are left out.
+    """
+    text = PHONE.sub(" ", EMAIL.sub(" ", question))
+    sentences = [s for s in _sentences(text) if not QUERY_INSTRUCTION.search(s)] or [text]
+    best: tuple[float, list[str]] = (-1.0, [])
+    for sentence in sentences:
+        terms = [spell_correct(t, industry) for t in tokens(sentence) if t not in FILLER]
+        score = max((s for s, _ in bm25(terms, chunks)), default=0.0) if terms else 0.0
+        if score > best[0]:
+            best = (score, terms)
+    return best[1]
 
 
 def bm25(query: list[str], chunks: tuple[Chunk, ...]) -> list[tuple[float, Chunk]]:
@@ -124,7 +180,7 @@ def answer(industry: str, question: str) -> dict[str, Any]:
         missing = chunks[0].doc  # the first document in the corpus never made it into the index
         chunks = tuple(c for c in chunks if c.doc != missing)
 
-    query = tokens(question)
+    query = understand(question, industry, load_corpus(industry))
     ranked = [(s, c) for s, c in bm25(query, chunks) if s > 0][: 1 if fault == "top_k_1" else TOP_K]
     if fault == "rerank_bug":
         ranked.reverse()
@@ -134,8 +190,10 @@ def answer(industry: str, question: str) -> dict[str, Any]:
     qset = set(query)
     found = {t for _, c in ranked for t in c.terms}
     coverage = len(qset & found) / max(len(qset), 1)
+    unknown = len(qset - vocabulary(industry)) / max(len(qset), 1)
     best_score = max((s for s, _ in ranked), default=0.0)
-    if (best_score < 2.0 or coverage < 0.5) and fault != "no_refusal":
+    out_of_scope = best_score < 2.0 or coverage < 0.5 or unknown > MAX_UNKNOWN
+    if out_of_scope and fault != "no_refusal":
         return {"answer": REFUSAL, "contexts": contexts}
     if not ranked:
         return {

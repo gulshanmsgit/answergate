@@ -114,7 +114,8 @@ def test_worker_pool_respects_concurrency() -> None:
 def test_rate_limit_spaces_calls() -> None:
     start = time.perf_counter()
     asyncio.run(run(cfg(concurrency=10, rate_limit_rps=50), cases(21), FastTarget(), None))
-    assert time.perf_counter() - start >= 0.38  # 20 gaps of 20 ms
+    # 20 gaps of 20 ms, less one tick of the Windows timer that asyncio.sleep wakes on
+    assert time.perf_counter() - start >= 0.38 - 0.016
 
 
 def test_interrupted_run_resumes_where_it_stopped(tmp_path: Path) -> None:

@@ -11,3 +11,4 @@ thresholds:
   min: { hit_rate: 0.8 }
   default_max_drop: 0.05
   guardrails_must_pass: true
+  guardrail_gate: new   # known failures in the accepted baseline warn; any new failure fails

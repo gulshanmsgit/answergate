@@ -38,14 +38,21 @@ Teams test RAG by asking a few questions by hand. Quality then drops quietly aft
 
 ## See it catch real breakages
 
-[`examples/industries`](examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Each comes with a golden set and seven injected faults (stale index, top_k change, reranker bug, removed refusal, removed PII redaction, prompt injection, hallucination). One command breaks each pipeline in every way and checks that RAGCheck catches it:
+[`examples/industries`](examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Together they come with **1,070 golden questions** covering these edge cases:
+- paraphrases, typos, keyword queries and long rambling questions;
+- Hinglish;
+- users sharing their own PII;
+- prompt injection in the question and in documents;
+- off-topic, unsafe and near-miss questions.
+
+One command breaks each pipeline in seven realistic ways (stale index, top_k change, reranker bug, removed refusal, removed PII redaction, obeying injected instructions, hallucination) and checks that RAGCheck catches each one:
 
 ```bash
 python examples/industries/run_demo.py
-# 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 3.5 s
+# 1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 19.0 s
 ```
 
-The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them.
+The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them. The demo also breaks the healthy runs down by edge case. In these pipelines, for example, keyword retrieval answers only 31% of paraphrased questions. Read [the full write-up](examples/industries/README.md).
 
 ## Quickstart
 
@@ -150,6 +157,7 @@ Questions run on a fixed worker pool, and judge results go into one SQLite cache
 - **Flaky calls are retried with backoff:** pipeline calls (`retries`, `target_timeout_s`) and judge calls (timeouts, 429s, 5xx errors, malformed JSON). Corrupted cache entries are ignored.
 - **A small golden set gets a warning.** With fewer than 20 questions, one question moves a metric by 5% or more.
 - **Only a passing run can become the baseline** with `--save-baseline`. To accept a failing one on purpose, use `ragcheck baseline`.
+- **Adopting it on a pipeline that isn't perfect yet:** with `thresholds.guardrail_gate: new`, guardrail failures already in the accepted baseline show as warnings, and any *new* failure still fails the gate. The default, `all`, fails on every guardrail failure.
 
 ## In CI (GitHub Actions)
 

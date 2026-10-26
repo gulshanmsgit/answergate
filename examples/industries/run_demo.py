@@ -5,12 +5,15 @@ For each industry it:
   2. runs the healthy pipeline again (must still pass: no false alarm),
   3. switches in each fault from demo_rag.py and runs again (must fail, for the right reason).
 
-    python examples/industries/run_demo.py                      # all industries, no judge, ~10 s
+It also breaks the healthy runs down by edge case (typos, paraphrases, near misses, ...), so you can see
+which kinds of question a pipeline handles badly even when the gate passes.
+
+    python examples/industries/run_demo.py                      # all industries, no judge
     python examples/industries/run_demo.py --industry banking --fault pii_leak
     python examples/industries/run_demo.py --judge ollama       # adds judged metrics (needs `ollama serve`)
     python examples/industries/run_demo.py --judge anthropic --model claude-haiku-5-5
 
-Reports land in examples/industries/out/<industry>/<fault>.html, with a scorecard in out/scorecard.md.
+Reports land in examples/industries/out/<industry>/<scenario>.html, with a scorecard in out/scorecard.md.
 Exit code 0 means every catchable fault was caught and no healthy run raised a false alarm.
 """
 
@@ -30,8 +33,9 @@ sys.path.insert(0, str(HERE))
 
 from demo_rag import FAULTS, INDUSTRIES  # noqa: E402
 
-from ragcheck.baseline import evaluate, save_baseline, save_run  # noqa: E402
+from ragcheck.baseline import evaluate, load_run, save_baseline, save_run  # noqa: E402
 from ragcheck.config import Config, load_config, load_golden  # noqa: E402
+from ragcheck.guardrails import looks_like_refusal  # noqa: E402
 from ragcheck.judges import make_judge  # noqa: E402
 from ragcheck.models import RunResult  # noqa: E402
 from ragcheck.report import write_reports  # noqa: E402
@@ -59,6 +63,7 @@ class Row:
     passed: bool
     outcome: str
     why: str
+    result: RunResult | None = None
 
 
 def configure(industry: str, judge: str | None, model: str | None, out: Path) -> Config:
@@ -87,34 +92,63 @@ async def one_run(cfg: Config, label: str, fault: str) -> RunResult:
 def check(industry: str, cfg: Config, out: Path, scenario: str, fault: str, judged: bool) -> Row:
     workdir = cfg.path(cfg.workdir)
     base_file = workdir / "baseline.json"
-    base = (
-        RunResult.model_validate_json(base_file.read_text(encoding="utf-8")) if base_file.exists() else None
-    )
+    base = load_run(base_file) if base_file.exists() else None
     result = asyncio.run(one_run(cfg, scenario, fault))
     save_run(result, workdir)
     verdict = evaluate(result, base, cfg.thresholds)
     folder = out / industry
     write_reports(result, verdict, base, folder / f"{scenario}.html", folder / f"{scenario}.md", 500)
+    why = "; ".join(verdict.failures)[:160]
 
     if scenario == "baseline":
-        if verdict.passed:
+        # Like `ragcheck baseline`: guardrail failures of the healthy pipeline are accepted as known
+        # failures (guardrail_gate: new then warns on them), but nothing else may fail
+        known = verdict.failures and all(f.startswith("Guardrail") for f in verdict.failures)
+        if verdict.passed or known:
             save_baseline(result, base_file)
-        ok, outcome = verdict.passed, "PASS" if verdict.passed else "FAIL"
-        return Row(industry, scenario, "pass", ok, outcome, "; ".join(verdict.failures)[:160])
+        outcome = "PASS" if verdict.passed else "ACCEPTED" if known else "FAIL"
+        why = f"known failures accepted: {why}" if known else why
+        return Row(industry, scenario, "pass", verdict.passed or bool(known), outcome, why, result)
     if scenario == "healthy-rerun":
-        ok = verdict.passed
-        return Row(
-            industry, scenario, "pass", ok, "PASS" if ok else "FALSE ALARM", "; ".join(verdict.failures)[:160]
-        )
-
-    caught = not verdict.passed
-    if caught:
-        return Row(industry, scenario, EXPECTED[fault], True, "CAUGHT", verdict.failures[0][:160])
+        outcome = "PASS" if verdict.passed else "FALSE ALARM"
+        return Row(industry, scenario, "pass", verdict.passed, outcome, why, result)
+    if not verdict.passed:
+        return Row(industry, scenario, EXPECTED[fault], True, "CAUGHT", verdict.failures[0][:160], result)
     if fault in NEEDS_JUDGE and not judged:
-        return Row(
-            industry, scenario, EXPECTED[fault], True, "NEEDS JUDGE", "retrieval and guardrails unchanged"
-        )
-    return Row(industry, scenario, EXPECTED[fault], False, "MISSED", "the gate passed")
+        unchanged = "retrieval and guardrails unchanged"
+        return Row(industry, scenario, EXPECTED[fault], True, "NEEDS JUDGE", unchanged, result)
+    return Row(industry, scenario, EXPECTED[fault], False, "MISSED", "the gate passed", result)
+
+
+def slices(results: list[RunResult]) -> list[str]:
+    """How the healthy pipelines handle each kind of edge case, across all industries."""
+    stats: dict[str, dict[str, list[float]]] = {}
+    for run_ in results:
+        for r in run_.results:
+            for tag in (t for t in r.case.tags if t.startswith("edge:")):
+                s = stats.setdefault(tag.removeprefix("edge:"), {})
+                if r.case.expect_refusal:
+                    s.setdefault("declined", []).append(float(r.guardrails.get("refusal", False)))
+                else:
+                    s.setdefault("hit_rate", []).append(r.scores.get("hit_rate", 0.0))
+                    s.setdefault("mrr", []).append(r.scores.get("mrr", 0.0))
+                    s.setdefault("answered", []).append(float(not looks_like_refusal(r.answer)))
+                for g in ("pii", "injection"):
+                    if g in r.guardrails:
+                        s.setdefault(g, []).append(float(r.guardrails[g]))
+
+    def mean(values: list[float] | None) -> str:
+        return f"{sum(values) / len(values):.2f}" if values else "–"
+
+    lines = [
+        "| Edge case | Questions | Hit rate | MRR | Answered | Declined when it should | No PII leaked | Resisted injection |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name, s in stats.items():
+        n = len(s.get("hit_rate") or s.get("declined") or [])
+        cols = [mean(s.get(k)) for k in ("hit_rate", "mrr", "answered", "declined", "pii", "injection")]
+        lines.append(f"| {name} | {n} | " + " | ".join(cols) + " |")
+    return lines
 
 
 def main() -> int:
@@ -146,15 +180,25 @@ def main() -> int:
     caught = sum(r.outcome == "CAUGHT" for r in faults)
     needs_judge = sum(r.outcome == "NEEDS JUDGE" for r in faults)
     problems = [r for r in rows if not r.passed]
+    baselines = [r.result for r in rows if r.scenario == "baseline" and r.result]
+    questions = sum(len(b.results) for b in baselines)
+    checks = sum(len(r.result.results) for r in rows if r.result)
     summary = (
-        f"{caught} of {len(faults)} injected faults caught · {needs_judge} need a judge · "
-        f"{sum(r.outcome == 'FALSE ALARM' for r in rows)} false alarms · {len(problems)} problems · "
-        f"judge: {args.judge or 'none'} · {time.perf_counter() - started:.1f} s"
+        f"{questions} questions · {checks} question checks · {caught} of {len(faults)} injected faults caught · "
+        f"{needs_judge} need a judge · {sum(r.outcome == 'FALSE ALARM' for r in rows)} false alarms · "
+        f"{len(problems)} problems · judge: {args.judge or 'none'} · {time.perf_counter() - started:.1f} s"
     )
+    edge = slices(baselines)
     lines = [
         "# RAGCheck industry demo scorecard",
         "",
         summary,
+        "",
+        "## Healthy pipelines by edge case",
+        "",
+        *edge,
+        "",
+        "## Runs",
         "",
         "| Industry | Scenario | Should trip | Outcome | First reason |",
         "|---|---|---|---|---|",
@@ -165,7 +209,12 @@ def main() -> int:
     ]
     out.mkdir(parents=True, exist_ok=True)
     (out / "scorecard.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"\n{summary}\nscorecard: {out / 'scorecard.md'}\nreports:   {out}")
+    print()
+    print("\n".join(edge))
+    print()
+    print(summary)
+    print(f"scorecard: {out / 'scorecard.md'}")
+    print(f"reports:   {out}")
     return 1 if problems else 0
 
 
