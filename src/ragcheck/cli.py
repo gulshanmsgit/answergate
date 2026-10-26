@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import os
 import shutil
 import sys
@@ -21,7 +22,9 @@ from ragcheck.config import Config, ConfigError, load_config, load_golden
 from ragcheck.judges import FatalJudgeError, JudgeError, make_judge
 from ragcheck.models import CaseResult, RunResult
 from ragcheck.report import label, write_reports
+from ragcheck.runner import build_run
 from ragcheck.runner import run as run_pipeline
+from ragcheck.selection import select
 from ragcheck.targets import make_target
 
 app = typer.Typer(
@@ -171,17 +174,41 @@ def run(
         bool, typer.Option("--save-baseline", help="Make this run the new baseline")
     ] = False,
     no_judge: Annotated[bool, typer.Option("--no-judge", help="Skip LLM-judged metrics")] = False,
+    shard: Annotated[
+        str | None,
+        typer.Option(help="Run one part of the golden set, e.g. 2/4; combine with `ragcheck merge`"),
+    ] = None,
+    sample: Annotated[int | None, typer.Option(help="Ask a random subset of this many questions")] = None,
+    seed: Annotated[int, typer.Option(help="Seed for --sample (same seed, same questions)")] = 0,
+    tag: Annotated[list[str] | None, typer.Option(help="Only questions with this tag (repeatable)")] = None,
+    resume: Annotated[
+        bool, typer.Option("--resume", help="Continue an interrupted run, skipping finished questions")
+    ] = False,
+    report_limit: Annotated[
+        int, typer.Option(help="Most questions shown in the HTML report (problems always shown)")
+    ] = 500,
 ) -> None:
     """Ask every golden question, score the answers, and compare with the baseline."""
     cfg = _load(config)
     if no_judge:
         cfg.judge.provider = "none"
     try:
-        cases = load_golden(cfg.path(cfg.golden_set))
+        all_cases = load_golden(cfg.path(cfg.golden_set))
+        cases = select(all_cases, shard, sample, seed, tag)
         target = make_target(cfg)
         judge = make_judge(cfg)
     except (ConfigError, JudgeError, FatalJudgeError) as e:
         _die(str(e))
+    subset = len(cases) < len(all_cases)
+    if subset and save_as_baseline:
+        _die("--save-baseline needs the whole golden set: a partial baseline would skew every comparison.")
+    if subset:
+        parts = [f"shard {shard}" if shard else "", f"sample {len(cases)} (seed {seed})" if sample else ""]
+        parts.append(f"tags {','.join(tag)}" if tag else "")
+        label_ = " · ".join(p for p in [label_, *parts] if p)
+    # One checkpoint per selection, so parallel shards in one workdir never share a file
+    ids = "\n".join(c.id for c in cases)
+    checkpoint = cfg.path(cfg.workdir) / f"inprogress-{hashlib.sha256(ids.encode()).hexdigest()[:10]}.jsonl"
 
     done = 0
 
@@ -200,7 +227,7 @@ def run(
         try:
             if judge:
                 await judge.preflight()
-            return await run_pipeline(cfg, cases, target, judge, label_, tick)
+            return await run_pipeline(cfg, cases, target, judge, label_, tick, checkpoint, resume)
         finally:
             await target.aclose()
             if judge:
@@ -210,13 +237,20 @@ def run(
     # Read the baseline before calling the pipeline, so a bad file fails fast
     base = _read_run(base_path, "baseline") if base_path.exists() else None
 
-    typer.echo(f"RAGCheck {__version__} · {len(cases)} questions · judge: {judge.name if judge else 'none'}")
+    of = f" of {len(all_cases)}" if subset else ""
+    typer.echo(
+        f"RAGCheck {__version__} · {len(cases)}{of} questions · judge: {judge.name if judge else 'none'}"
+    )
     try:
         result = asyncio.run(go())
     except FatalJudgeError as e:
         typer.echo("")
         _die(f"Judge setup problem: {e}")
+    except KeyboardInterrupt:
+        typer.echo("")
+        _die(f"Interrupted after {done} questions. They are saved: continue with `ragcheck run --resume`.")
     typer.echo("")
+    checkpoint.unlink(missing_ok=True)  # the full run is saved below
 
     workdir = cfg.path(cfg.workdir)
     saved = save_run(result, workdir)
@@ -225,7 +259,7 @@ def run(
 
     verdict = evaluate(result, base, cfg.thresholds)
     _print_verdict(result, verdict)
-    write_reports(result, verdict, base, html, md)
+    write_reports(result, verdict, base, html, md, report_limit)
     typer.echo(f"\n  run saved to {saved}")
     if html:
         typer.echo(f"  report: {html.resolve()}")
@@ -268,6 +302,63 @@ def compare(
     verdict = evaluate(cur, base, cfg.thresholds)
     _print_verdict(cur, verdict)
     write_reports(cur, verdict, base, html, md)
+    raise typer.Exit(0 if verdict.passed else EXIT_FAILED)
+
+
+@app.command()
+@_guard
+def merge(
+    runs: Annotated[list[Path], typer.Argument(help="Run files from each shard")],
+    config: ConfigOpt = Path("ragcheck.yaml"),
+    baseline: Annotated[Path | None, typer.Option(help="Baseline run file")] = None,
+    html: Annotated[Path | None, typer.Option(help="Write the HTML report here")] = Path(
+        "ragcheck-report.html"
+    ),
+    md: Annotated[Path | None, typer.Option(help="Write a Markdown summary here")] = None,
+    save_as_baseline: Annotated[
+        bool, typer.Option("--save-baseline", help="Make the merged run the new baseline if it passes")
+    ] = False,
+    report_limit: Annotated[int, typer.Option(help="Most questions shown in the HTML report")] = 500,
+) -> None:
+    """Combine shard runs (`run --shard i/n`) into one run, then gate it like a normal run."""
+    cfg = _load(config)
+    parts = [_read_run(p, "run") for p in runs]
+    if len({p.config_hash for p in parts}) > 1:
+        _die(
+            "These runs used different scoring settings (config fingerprints differ): merge runs from one config."
+        )
+    seen: dict[str, str] = {}
+    results = []
+    for path, part in zip(runs, parts, strict=True):
+        for r in part.results:
+            if r.case.id in seen:
+                _die(
+                    f"Question '{r.case.id}' is in both {seen[r.case.id]} and {path.name}: shards must not overlap."
+                )
+            seen[r.case.id] = path.name
+            results.append(r)
+    label_ = "merged: " + " + ".join(p.label or p.id for p in parts)
+    merged = build_run(results, parts[0].config_hash, label_, parts[0].source_match)
+    saved = save_run(merged, cfg.path(cfg.workdir))
+    base_path = baseline or _baseline_path(cfg)
+    base = _read_run(base_path, "baseline") if base_path.exists() else None
+    total = len(load_golden(cfg.path(cfg.golden_set)))
+    verdict = evaluate(merged, base, cfg.thresholds)
+    if len(results) < total:
+        verdict.warnings.append(f"The merged shards cover {len(results)} of {total} golden questions")
+    typer.echo(f"Merged {len(parts)} runs · {len(results)} questions")
+    _print_verdict(merged, verdict)
+    write_reports(merged, verdict, base, html, md, report_limit)
+    typer.echo(f"\n  run saved to {saved}")
+    if save_as_baseline:
+        if verdict.passed and len(results) == total:
+            save_baseline(merged, _baseline_path(cfg))
+            typer.echo(f"  saved as baseline: {_baseline_path(cfg)}")
+        else:
+            typer.secho(
+                "  not saved as baseline: the merged run failed or is missing questions",
+                fg=typer.colors.YELLOW,
+            )
     raise typer.Exit(0 if verdict.passed else EXIT_FAILED)
 
 

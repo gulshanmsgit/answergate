@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import statistics
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ragcheck import guardrails as g
 from ragcheck.config import Config
@@ -120,40 +122,8 @@ def _percentile(values: list[float], p: float) -> float:
     return s[min(len(s) - 1, round(p * (len(s) - 1)))]
 
 
-async def run(
-    cfg: Config,
-    cases: list[GoldenCase],
-    target: Target,
-    judge: CachedJudge | None,
-    label: str = "",
-    on_case: Progress | None = None,
-) -> RunResult:
-    sem = asyncio.Semaphore(max(1, cfg.concurrency))
-
-    async def one(case: GoldenCase) -> CaseResult:
-        async with sem:
-            res = await _ask(target, case, cfg.retries, cfg.target_timeout_s)
-            if res.error is None:
-                try:
-                    await score_case(res, cfg, judge)
-                except FatalJudgeError:
-                    raise
-                except Exception as e:
-                    # A scoring bug must not take down the whole run
-                    res.judge_error = f"Scoring failed: {type(e).__name__}: {e}"[:500]
-        if on_case:
-            on_case(res)
-        return res
-
-    tasks = [asyncio.ensure_future(one(c)) for c in cases]
-    try:
-        results = await asyncio.gather(*tasks)
-    except FatalJudgeError:
-        # The judge can't work at all: stop the remaining questions instead of failing each one
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        raise
+def build_run(results: list[CaseResult], config_hash: str, label: str, source_match: str) -> RunResult:
+    """Aggregate per-question results into a run. Used after a run, a resume and a shard merge."""
     metrics, rails = aggregate(results)
     latencies = [r.latency_ms for r in results if r.error is None]
     now = datetime.now(timezone.utc)
@@ -161,13 +131,143 @@ async def run(
         id=now.strftime("%Y%m%d-%H%M%S-%f-") + uuid.uuid4().hex[:4],
         created_at=now.isoformat(timespec="seconds"),
         label=label,
-        config_hash=cfg.fingerprint(),
-        results=list(results),
+        config_hash=config_hash,
+        results=results,
         metrics=metrics,
         guardrails=rails,
         latency_p50_ms=round(_percentile(latencies, 0.5), 1),
         latency_p95_ms=round(_percentile(latencies, 0.95), 1),
         errors=sum(1 for r in results if r.error),
         judge_errors=sum(1 for r in results if r.judge_error),
-        source_match=cfg.source_match,
+        source_match=source_match,  # type: ignore[arg-type]
     )
+
+
+class RateLimiter:
+    """Spaces out call starts to at most `rps` per second (shared by all workers)."""
+
+    def __init__(self, rps: float | None) -> None:
+        self.interval = 1.0 / rps if rps else 0.0
+        self.next_at = 0.0
+        self.lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        if not self.interval:
+            return
+        async with self.lock:
+            now = time.monotonic()
+            delay = self.next_at - now
+            self.next_at = max(now, self.next_at) + self.interval
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
+class Checkpoint:
+    """Appends each finished question to a JSONL file, so a crash or Ctrl+C loses nothing."""
+
+    def __init__(self, path: Path, config_hash: str) -> None:
+        self.path = path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fresh = not path.exists()
+        self.f = path.open("a", encoding="utf-8")
+        if fresh:
+            self.f.write(json.dumps({"config_hash": config_hash}) + "\n")
+            self.f.flush()
+
+    def add(self, res: CaseResult) -> None:
+        self.f.write(res.model_dump_json() + "\n")
+        self.f.flush()
+
+    def close(self) -> None:
+        self.f.close()
+
+    @staticmethod
+    def load(path: Path, config_hash: str) -> dict[str, CaseResult]:
+        """Finished questions from an earlier, interrupted run with the same scoring settings."""
+        done: dict[str, CaseResult] = {}
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return done
+        if not lines or json.loads(lines[0]).get("config_hash") != config_hash:
+            return done
+        for line in lines[1:]:
+            try:
+                r = CaseResult.model_validate_json(line)
+            except ValueError:
+                continue  # a line cut off by the crash
+            # Questions that errored are asked again on resume
+            if r.error is None and r.judge_error is None:
+                done[r.case.id] = r
+        return done
+
+
+async def run(
+    cfg: Config,
+    cases: list[GoldenCase],
+    target: Target,
+    judge: CachedJudge | None,
+    label: str = "",
+    on_case: Progress | None = None,
+    checkpoint: Path | None = None,
+    resume: bool = False,
+) -> RunResult:
+    fingerprint = cfg.fingerprint()
+    prior = Checkpoint.load(checkpoint, fingerprint) if (checkpoint and resume) else {}
+    if checkpoint and not resume and checkpoint.exists():
+        checkpoint.unlink()
+    log = Checkpoint(checkpoint, fingerprint) if checkpoint else None
+    limiter = RateLimiter(cfg.rate_limit_rps)
+
+    results: dict[str, CaseResult] = {}
+    queue: asyncio.Queue[GoldenCase] = asyncio.Queue()
+    for c in cases:
+        if c.id in prior:
+            results[c.id] = prior[c.id]
+            if on_case:
+                on_case(prior[c.id])
+        else:
+            queue.put_nowait(c)
+
+    async def one(case: GoldenCase) -> CaseResult:
+        await limiter.wait()
+        res = await _ask(target, case, cfg.retries, cfg.target_timeout_s)
+        if res.error is None:
+            try:
+                await score_case(res, cfg, judge)
+            except FatalJudgeError:
+                raise
+            except Exception as e:
+                # A scoring bug must not take down the whole run
+                res.judge_error = f"Scoring failed: {type(e).__name__}: {e}"[:500]
+        return res
+
+    async def worker() -> None:
+        # A fixed pool of workers pulls from the queue: memory stays flat however many questions there are
+        while True:
+            try:
+                case = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            res = await one(case)
+            results[case.id] = res
+            if log:
+                log.add(res)
+            if on_case:
+                on_case(res)
+
+    workers = [asyncio.ensure_future(worker()) for _ in range(min(cfg.concurrency, max(1, queue.qsize())))]
+    try:
+        await asyncio.gather(*workers)
+    except BaseException:
+        # A fatal judge error (or Ctrl+C): stop the other workers; the checkpoint keeps what finished
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        raise
+    finally:
+        if log:
+            log.close()
+
+    ordered = [results[c.id] for c in cases if c.id in results]
+    return build_run(ordered, fingerprint, label, cfg.source_match)

@@ -76,7 +76,7 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
     return "\n".join(lines) + "\n"
 
 
-def html(run: RunResult, verdict: Verdict, baseline: RunResult | None) -> str:
+def html(run: RunResult, verdict: Verdict, baseline: RunResult | None, limit: int = 500) -> str:
     env = Environment(
         loader=PackageLoader("ragcheck", "templates"),
         # Answers and contexts are untrusted text; the template's .j2 suffix would disable the default
@@ -96,15 +96,34 @@ def html(run: RunResult, verdict: Verdict, baseline: RunResult | None) -> str:
             r.case.id,
         ),
     )
+    # A 10,000-question report would be unusable: show every problem, then passing questions up to the limit
+    problems = [
+        r
+        for r in ordered
+        if r.case.id in regressed or r.error or r.judge_error or not all(r.guardrails.values())
+    ]
+    shown = problems + [r for r in ordered if r not in problems][: max(0, limit - len(problems))]
+    hidden = len(ordered) - len(shown)
     return env.get_template("report.html.j2").render(
-        run=run, verdict=verdict, baseline=baseline, before=before, regressed=regressed, results=ordered
+        run=run,
+        verdict=verdict,
+        baseline=baseline,
+        before=before,
+        regressed=regressed,
+        results=shown,
+        hidden=hidden,
     )
 
 
 def write_reports(
-    run: RunResult, verdict: Verdict, baseline: RunResult | None, html_path: Path | None, md_path: Path | None
+    run: RunResult,
+    verdict: Verdict,
+    baseline: RunResult | None,
+    html_path: Path | None,
+    md_path: Path | None,
+    limit: int = 500,
 ) -> None:
     if html_path:
-        html_path.write_text(html(run, verdict, baseline), encoding="utf-8")
+        html_path.write_text(html(run, verdict, baseline, limit), encoding="utf-8")
     if md_path:
         md_path.write_text(markdown(run, verdict), encoding="utf-8")

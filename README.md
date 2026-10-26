@@ -106,6 +106,33 @@ Before the run, one small **preflight** call checks the key, the model and the e
 
 Live judge tests are off by default, because they cost money. To run them: `RAGCHECK_LIVE=anthropic pytest tests/test_live_judges.py`.
 
+### How accurate is the judge? Measure it
+
+```bash
+ragcheck calibrate                         # 32 built-in labelled cases
+ragcheck calibrate --labels my_labels.jsonl  # your own human labels: the real test for your domain
+```
+
+This prints the judge's accuracy and Cohen's kappa for each metric, and lists the cases it got wrong. It exits 1 if any metric is below `--min-accuracy` (default 0.85).
+
+RAGCheck has three accuracy safeguards built in:
+
+- **Evidence-checked faithfulness.** For every claim it calls supported, the judge must quote the supporting text. RAGCheck checks that the quote is really in the retrieved context, and numbers must match exactly. A "supported" verdict without real evidence is overruled.
+- **Multi-sample judging.** With `judge.samples: 3` (or 5 or 7), each metric is graded several times and the median score or majority vote is kept. Questions where the samples disagree are flagged.
+- **Confidence intervals.** Every change versus the baseline comes with a 95% interval: a seeded bootstrap for small sets, the normal approximation for large ones. With `thresholds.require_significance: true`, a drop fails the gate only when the interval excludes zero, so noise on a small golden set stops causing false alarms.
+
+### Large golden sets
+
+| Need | Use |
+|---|---|
+| Split a big set across CI machines | `ragcheck run --shard 1/4` … `--shard 4/4`, then `ragcheck merge <run files>` |
+| Quick check on every pull request | `ragcheck run --sample 200 --seed 1`: the same 200 questions every time, compared on the shared questions |
+| Only some topics | `ragcheck run --tag billing --tag refunds` |
+| A run was interrupted | `ragcheck run --resume`: finished questions are checkpointed as they complete |
+| Protect a production endpoint | `rate_limit_rps: 5` in the config |
+
+Questions run on a fixed worker pool, and judge results go into one SQLite cache file that parallel shards can share. The HTML report always shows every problem, plus passing questions up to `--report-limit`. In a benchmark with instant fake pipeline and judge, a 50,000-question run held about 1,100 questions per second, with a peak of 159 MB memory. In real use, your pipeline and the judge model set the speed.
+
 ### How the gate stays fair
 - **Changes are measured only on questions that exist in both runs.** Adding hard new questions never counts as a regression, and deleting questions never hides one. New questions are checked against the absolute minimums.
 - **Incomplete runs never pass.** If the pipeline errors, the judge fails, or a metric from the baseline vanishes (say the judge was switched off), the run fails. It never quietly scores as a pass.
@@ -134,6 +161,8 @@ The action runs the suite, uploads the HTML report as an artifact, posts a summa
 | `ragcheck run --save-baseline` | Same, then make this run the baseline if it passed |
 | `ragcheck run --no-judge` | Retrieval metrics and regex guardrails only, no LLM calls |
 | `ragcheck compare [RUN]` | Re-check a saved run against the baseline |
+| `ragcheck merge RUN...` | Combine shard runs into one run and gate it |
+| `ragcheck calibrate` | Measure the judge against labelled cases |
 | `ragcheck baseline [RUN]` | Make a saved run the baseline |
 
 Exit codes: `0` passed, `1` the quality gate failed, `2` RAGCheck could not run.

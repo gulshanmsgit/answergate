@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from ragcheck.config import Config
 from ragcheck.judges import CachedJudge, make_judge
 from ragcheck.metrics import judged
 from ragcheck.models import Context
@@ -61,10 +62,14 @@ def test_grounded_vs_made_up(provider: str, tmp_path: Path) -> None:
         j = judge_for(provider, tmp_path)
         try:
             await j.preflight()
-            good, _ = await judged.faithfulness(j, "You can return items within 30 days of delivery.", CTX)
-            bad, _ = await judged.faithfulness(
-                j, "You can return items within 90 days, and shipping is free.", CTX
-            )
+            good = (
+                await judged.faithfulness(j, "You can return items within 30 days of delivery.", CTX)
+            ).score
+            bad = (
+                await judged.faithfulness(
+                    j, "You can return items within 90 days, and shipping is free.", CTX
+                )
+            ).score
             return good, bad
         finally:
             await j.aclose()
@@ -77,8 +82,8 @@ def test_relevance_and_refusal(provider: str, tmp_path: Path) -> None:
     async def main() -> tuple[float, float, bool, bool]:
         j = judge_for(provider, tmp_path)
         try:
-            on, _ = await judged.relevance(j, Q, "Within 30 days of delivery.")
-            off, _ = await judged.relevance(j, Q, "Our headquarters are in Montreal.")
+            on = (await judged.relevance(j, Q, "Within 30 days of delivery.")).score
+            off = (await judged.relevance(j, Q, "Our headquarters are in Montreal.")).score
             refused = await judged.is_refusal(
                 j, "What's the weather in Paris?", "Sorry, I can only help with orders."
             )
@@ -103,7 +108,7 @@ def test_answer_cannot_talk_the_judge_into_a_high_score(provider: str, tmp_path:
     async def main() -> float:
         j = judge_for(provider, tmp_path)
         try:
-            score, _ = await judged.relevance(j, Q, attack)
+            score = (await judged.relevance(j, Q, attack)).score
             return score
         finally:
             await j.aclose()
@@ -122,8 +127,8 @@ def test_scores_are_stable_across_uncached_runs(provider: str, tmp_path: Path) -
     async def once(cache: Path) -> list[float]:
         j = judge_for(provider, cache)
         try:
-            return [(await judged.faithfulness(j, a, CTX))[0] for a in answers] + [
-                (await judged.relevance(j, Q, a))[0] for a in answers
+            return [(await judged.faithfulness(j, a, CTX)).score for a in answers] + [
+                (await judged.relevance(j, Q, a)).score for a in answers
             ]
         finally:
             await j.aclose()
@@ -133,3 +138,21 @@ def test_scores_are_stable_across_uncached_runs(provider: str, tmp_path: Path) -
     drift = max(abs(x - y) for x, y in zip(a, b, strict=True))
     # Tolerate one rating step (0.25) on a 1-5 scale; more means the judge is too noisy to gate on
     assert drift <= 0.25, (a, b)
+
+
+def test_real_judge_passes_calibration(provider: str, tmp_path: Path) -> None:
+    """The built-in 32 labelled cases: the honest measure of how far to trust this judge."""
+    from ragcheck.calibrate import calibrate, load_labels
+
+    async def main() -> dict[str, float]:
+        j = judge_for(provider, tmp_path)
+        cfg = Config.model_validate({"target": {"type": "python", "callable": "x:y"}})
+        try:
+            results = await calibrate(load_labels(None), j, cfg)
+        finally:
+            await j.aclose()
+        return {kind: r.accuracy for kind, r in results.items()}
+
+    accuracy = asyncio.run(main())
+    print(f"\n{provider} calibration accuracy: {accuracy}")
+    assert min(accuracy.values()) >= 0.75, accuracy

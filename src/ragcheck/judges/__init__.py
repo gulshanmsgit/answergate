@@ -5,15 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
-import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from ragcheck.config import Config, JudgeConfig
+from ragcheck.judges.cache import JudgeCache
 
 # A JSON schema for the judge's reply; each provider enforces it in its own way
 Schema = dict[str, Any]
@@ -96,7 +95,7 @@ PREFLIGHT_SCHEMA: Schema = {
 
 
 class CachedJudge:
-    """Wraps a judge with retries, a concurrency limit and a content-addressed cache in <workdir>/cache."""
+    """Wraps a judge with retries, a concurrency limit and a content-addressed SQLite cache."""
 
     def __init__(
         self,
@@ -112,31 +111,11 @@ class CachedJudge:
         # What the cache key is tied to: provider, model and endpoint, not just the model name
         self.identity = identity or inner.name
         self.sem = asyncio.Semaphore(max(1, concurrency))
-        self.dir = cache_dir
-        self.dir.mkdir(parents=True, exist_ok=True)
+        self.cache = JudgeCache(cache_dir)
         self.attempts = max(1, attempts)
         self.backoff_s = backoff_s
         self.hits = 0
         self.misses = 0
-
-    def _read(self, path: Path) -> dict[str, Any] | None:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            # A half-written or corrupted entry is just a cache miss
-            return None
-        return data if isinstance(data, dict) else None
-
-    def _write(self, path: Path, data: dict[str, Any]) -> None:
-        # Write then rename, so a crash never leaves a truncated entry behind
-        tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        try:
-            path.parent.mkdir(exist_ok=True)
-            tmp.write_text(json.dumps(data), encoding="utf-8")
-            os.replace(tmp, path)
-        except OSError:
-            # Caching is an optimisation: a locked or read-only cache must not fail the run
-            tmp.unlink(missing_ok=True)
 
     async def _call(self, system: str, prompt: str, schema: Schema | None, sample: int = 0) -> dict[str, Any]:
         delay = self.backoff_s
@@ -161,14 +140,13 @@ class CachedJudge:
         if sample:
             schema_key += f"#sample{sample}"
         key = hashlib.sha256(f"{self.identity}\0{system}\0{prompt}\0{schema_key}".encode()).hexdigest()
-        path = self.dir / key[:2] / f"{key}.json"
-        cached = self._read(path) if path.exists() else None
+        cached = self.cache.get(key)
         if cached is not None:
             self.hits += 1
             return cached
         self.misses += 1
         data = await self._call(system, prompt, schema, sample)
-        self._write(path, data)
+        self.cache.put(key, data)
         return data
 
     async def preflight(self) -> None:
@@ -183,6 +161,7 @@ class CachedJudge:
             raise FatalJudgeError(f"The judge ({self.name}) is not answering usably: {e}") from e
 
     async def aclose(self) -> None:
+        self.cache.close()
         await self.inner.aclose()
 
 

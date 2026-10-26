@@ -169,12 +169,18 @@ def test_judge_odd_score_values(project: Path, score: Any) -> None:
     assert rel is None or 0.0 <= rel <= 1.0
 
 
-def test_corrupted_cache_file_is_ignored(project: Path) -> None:
-    go(project, FnTarget(lambda q: GOOD), ok_judge)
-    for f in (project / ".ragcheck" / "cache").rglob("*.json"):
-        f.write_text("{trunc", encoding="utf-8")
+def test_corrupted_cache_file_is_moved_aside(project: Path) -> None:
+    from ragcheck.judges.cache import FILENAME, JudgeCache
+
+    cache_dir = project / ".ragcheck" / "cache"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / FILENAME).write_bytes(b"not a database " * 200)
     r = go(project, FnTarget(lambda q: GOOD), ok_judge)
     assert r.judge_errors == 0
+    assert list(cache_dir.glob("*.corrupt-*"))  # kept for inspection, replaced by a fresh cache
+    fresh = JudgeCache(cache_dir)
+    assert len(fresh) > 0  # and the fresh cache was filled
+    fresh.close()
 
 
 # ── Bad input files ───────────────────────────────────────────────────

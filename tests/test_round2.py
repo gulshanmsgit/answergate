@@ -221,12 +221,18 @@ def test_unicode_questions_and_answers_round_trip(project: Path) -> None:
     assert "ರಿಫಂಡ್" in html(r, evaluate(r, None, Thresholds()), None)
 
 
-def test_cache_write_failure_is_not_fatal(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import os
+def test_locked_cache_is_not_fatal(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
 
-    def locked(*a: Any) -> None:
-        raise PermissionError("file in use")  # Windows, when another run holds the file
+    from ragcheck.judges.cache import JudgeCache
 
-    monkeypatch.setattr(os, "replace", locked)
+    class Locked:
+        def execute(self, *a: Any) -> Any:
+            raise sqlite3.OperationalError("database is locked")  # another process holds it
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(JudgeCache, "_connect", lambda self: Locked())
     rec = judged_run(project, "an answer")
-    assert rec.prompts  # the run completed
+    assert rec.prompts  # every call went to the judge, and the run completed

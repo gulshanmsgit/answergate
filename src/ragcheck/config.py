@@ -106,6 +106,8 @@ class Config(BaseModel):
     retries: int = Field(default=2, ge=0)
     # A pipeline call taking longer than this counts as an error for that question
     target_timeout_s: float = Field(default=120.0, gt=0)
+    # Cap on how many questions per second are sent to the pipeline (None: no cap)
+    rate_limit_rps: float | None = Field(default=None, gt=0)
     thresholds: Thresholds = Field(default_factory=Thresholds)
     # How expected_sources match retrieved ids: "basename" ignores folders, case and spaces; "exact" doesn't
     source_match: Literal["basename", "exact"] = "basename"
@@ -138,7 +140,7 @@ class Config(BaseModel):
     def fingerprint(self) -> str:
         """Hash of the settings that change scores, stored with each run."""
         data = self.model_dump(
-            mode="json", exclude={"root", "concurrency", "retries", "thresholds", "workdir"}
+            mode="json", exclude={"root", "concurrency", "retries", "thresholds", "workdir", "rate_limit_rps"}
         )
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
 

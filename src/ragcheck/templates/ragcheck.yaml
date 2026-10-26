@@ -24,18 +24,22 @@ judge:
   model: qwen2.5:7b           # anthropic default: claude-opus-5-5; openai: set the model your endpoint serves
   # effort: low              # anthropic only: cheaper, faster grading
   concurrency: 2             # parallel judge calls; keep low for a local model
+  # samples: 3               # grade each metric 3 times, keep the median (1, 3, 5 or 7)
+  # verify_evidence: true    # faithfulness: a judge's quote must really be in the context
   # api_key_env: OPENAI_API_KEY
 
 k: 5                         # top-k contexts used by the retrieval metrics
 source_match: basename       # basename: 'docs/Refund.md#2' matches 'refund.md'; exact: ids must match as written
 target_timeout_s: 120        # a slower pipeline answer counts as an error
 concurrency: 4
+# rate_limit_rps: 5         # cap questions per second sent to your pipeline
 
 thresholds:
   min:
     hit_rate: 0.8
     faithfulness: 0.8
   default_max_drop: 0.05     # fail if any metric falls more than this versus the baseline
+  # require_significance: true  # fail only drops whose 95% confidence interval excludes zero
   max_drop:
     relevance: 0.1
   guardrails_must_pass: true
