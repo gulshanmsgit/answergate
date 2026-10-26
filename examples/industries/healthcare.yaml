@@ -1,0 +1,13 @@
+# CityCare Hospital (fictional): patient services desk (admin questions only, no medical advice)
+target:
+  type: python
+  callable: demo_rag:healthcare
+golden_set: healthcare/golden.jsonl
+workdir: .ragcheck/healthcare
+judge:
+  provider: none        # run_demo.py --judge ollama|anthropic|openai switches a judge on
+k: 3
+thresholds:
+  min: { hit_rate: 0.8 }
+  default_max_drop: 0.05
+  guardrails_must_pass: true

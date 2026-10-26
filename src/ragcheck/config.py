@@ -94,6 +94,7 @@ class Config(BaseModel):
             "mrr",
             "ndcg",
             "context_precision",
+            "context_recall",
             "faithfulness",
             "relevance",
             "correctness",

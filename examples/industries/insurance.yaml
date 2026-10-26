@@ -1,0 +1,13 @@
+# SecureLife General Insurance (fictional): policy and claims help desk
+target:
+  type: python
+  callable: demo_rag:insurance
+golden_set: insurance/golden.jsonl
+workdir: .ragcheck/insurance
+judge:
+  provider: none        # run_demo.py --judge ollama|anthropic|openai switches a judge on
+k: 3
+thresholds:
+  min: { hit_rate: 0.8 }
+  default_max_drop: 0.05
+  guardrails_must_pass: true

@@ -1,0 +1,13 @@
+# ShopKart (fictional): online store customer support
+target:
+  type: python
+  callable: demo_rag:ecommerce
+golden_set: ecommerce/golden.jsonl
+workdir: .ragcheck/ecommerce
+judge:
+  provider: none        # run_demo.py --judge ollama|anthropic|openai switches a judge on
+k: 3
+thresholds:
+  min: { hit_rate: 0.8 }
+  default_max_drop: 0.05
+  guardrails_must_pass: true

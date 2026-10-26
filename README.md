@@ -36,6 +36,17 @@ Teams test RAG by asking a few questions by hand. Quality then drops quietly aft
 ### How it compares
 [RAGAS](https://github.com/explodinggradients/ragas) and [DeepEval](https://github.com/confident-ai/deepeval) are rich metric libraries, and [promptfoo](https://github.com/promptfoo/promptfoo) tests prompts across models. RAGCheck is deliberately narrower: a zero-code CLI and GitHub Action that treats your pipeline as a black box, stores baselines, and blocks the merge when quality regresses. Use it alongside those libraries if you need more metrics.
 
+## See it catch real breakages
+
+[`examples/industries`](examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Each comes with a golden set and seven injected faults (stale index, top_k change, reranker bug, removed refusal, removed PII redaction, prompt injection, hallucination). One command breaks each pipeline in every way and checks that RAGCheck catches it:
+
+```bash
+python examples/industries/run_demo.py
+# 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 3.5 s
+```
+
+The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them.
+
 ## Quickstart
 
 ```bash

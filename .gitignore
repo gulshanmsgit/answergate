@@ -15,3 +15,7 @@ build/
 !.ragcheck/baseline.json
 ragcheck-report.html
 ragcheck-summary.md
+
+# Industry demo output
+examples/industries/out/
+examples/industries/.ragcheck/
