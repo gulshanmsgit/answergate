@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +44,9 @@ class MetricDelta:
     # Change measured only on questions present in both runs (None: plain difference of the means)
     paired: float | None = None
     paired_n: int = 0
+    # 95% confidence interval of the paired change (None without a baseline)
+    ci_low: float | None = None
+    ci_high: float | None = None
 
     @property
     def delta(self) -> float | None:
@@ -78,20 +83,36 @@ class Verdict:
 
 # Below this many questions, one question moves a mean by a noticeable step
 SMALL_SET = 20
+# Bootstrap below this many pairs; above it the normal approximation is accurate and much faster
+BOOTSTRAP_MAX_N = 400
+BOOTSTRAP_RESAMPLES = 2000
 
 
-def _paired(current: RunResult, baseline: RunResult, name: str) -> tuple[float, int] | None:
-    """Mean change of a metric over the questions both runs scored, so adding or removing
+def _paired_diffs(current: RunResult, baseline: RunResult, name: str) -> list[float]:
+    """Per-question change of a metric over the questions both runs scored, so adding or removing
     golden questions never shows up as a regression or hides one."""
     before = {r.case.id: r.scores[name] for r in baseline.results if name in r.scores}
-    pairs = [
-        (r.scores[name], before[r.case.id])
+    return [
+        r.scores[name] - before[r.case.id]
         for r in current.results
         if name in r.scores and r.case.id in before
     ]
-    if not pairs:
-        return None
-    return sum(c - b for c, b in pairs) / len(pairs), len(pairs)
+
+
+def confidence_interval(diffs: list[float]) -> tuple[float, float]:
+    """95% interval for the mean paired change. Seeded bootstrap for small sets, so the same runs always
+    give the same interval; normal approximation for large ones."""
+    n = len(diffs)
+    mean = sum(diffs) / n
+    if n == 1:
+        return mean, mean
+    if n > BOOTSTRAP_MAX_N:
+        var = sum((d - mean) ** 2 for d in diffs) / (n - 1)
+        half = 1.96 * math.sqrt(var / n)
+        return mean - half, mean + half
+    rng = random.Random(0)
+    means = sorted(sum(rng.choices(diffs, k=n)) / n for _ in range(BOOTSTRAP_RESAMPLES))
+    return means[int(0.025 * BOOTSTRAP_RESAMPLES)], means[int(0.975 * BOOTSTRAP_RESAMPLES) - 1]
 
 
 def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> Verdict:
@@ -102,9 +123,11 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
     for name in sorted(set(current.metrics) | set(base_m)):
         d = MetricDelta(name, current.metrics.get(name), base_m.get(name))
         if baseline and d.current is not None and d.baseline is not None:
-            paired = _paired(current, baseline, name)
-            if paired:
-                d.paired, d.paired_n = paired
+            diffs = _paired_diffs(current, baseline, name)
+            if diffs:
+                d.paired, d.paired_n = sum(diffs) / len(diffs), len(diffs)
+                lo, hi = confidence_interval(diffs)
+                d.ci_low, d.ci_high = round(lo, 4), round(hi, 4)
         v.metrics.append(d)
         floor = t.min.get(name)
         if floor is not None and d.current is not None and d.current < floor:
@@ -112,7 +135,12 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
         allowed = t.max_drop.get(name, t.default_max_drop)
         if allowed is not None and d.delta is not None and -d.delta > allowed:
             on = f" on the {d.paired_n} questions in both runs" if d.paired is not None else ""
-            v.failures.append(f"{name} dropped {-d.delta:.3f}{on}; allowed {allowed:.3f}")
+            ci = f" (95% CI {d.ci_low:+.3f} to {d.ci_high:+.3f})" if d.ci_high is not None else ""
+            if t.require_significance and d.ci_high is not None and d.ci_high >= 0:
+                # The interval still includes "no change": too uncertain to block on
+                v.warnings.append(f"{name} dropped {-d.delta:.3f}{on}, but not significantly{ci}")
+            else:
+                v.failures.append(f"{name} dropped {-d.delta:.3f}{on}; allowed {allowed:.3f}{ci}")
         if d.current is None and d.baseline is not None:
             # A metric silently vanishing (judge switched off, every judge call failing) must not pass
             v.failures.append(f"{name} was measured in the baseline but not in this run (is the judge off?)")

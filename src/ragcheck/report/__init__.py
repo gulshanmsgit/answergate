@@ -13,6 +13,7 @@ from ragcheck.models import RunResult
 LABELS = {
     "hit_rate": "Hit rate",
     "mrr": "MRR",
+    "ndcg": "nDCG",
     "context_precision": "Context precision",
     "context_recall": "Context recall",
     "faithfulness": "Faithfulness",
@@ -54,11 +55,12 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
         f"{len(run.results)} questions · p50 {run.latency_p50_ms:.0f} ms · p95 {run.latency_p95_ms:.0f} ms"
         + (f" · {run.errors} errors" if run.errors else "")
     )
-    lines += ["", "| Metric | Baseline | This run | Change |", "|---|---:|---:|---:|"]
+    lines += ["", "| Metric | Baseline | This run | Change [95% CI] |", "|---|---:|---:|---:|"]
     for d in verdict.metrics + verdict.guardrails:
         base = f"{d.baseline:.3f}" if d.baseline is not None else "—"
         cur = f"{d.current:.3f}" if d.current is not None else "—"
-        lines.append(f"| {label(d.name)} | {base} | {cur} | {_fmt_delta(d.delta)} |")
+        ci = f" [{_fmt_delta(d.ci_low)}, {_fmt_delta(d.ci_high)}]" if d.ci_low is not None else ""
+        lines.append(f"| {label(d.name)} | {base} | {cur} | {_fmt_delta(d.delta)}{ci} |")
     if verdict.failures:
         lines += ["", "**Why it failed**", *[f"- {f}" for f in verdict.failures]]
     if verdict.regressions:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -48,3 +49,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RAGCHECK_TEST_MODE", "good")
     return tmp_path
+
+
+def quote_from_prompt(prompt: str) -> str:
+    """A verbatim piece of the first retrieved chunk in a judge prompt: what an honest judge would cite."""
+    m = re.search(r"<context>\n\[1\] \(id: [^)]*\)\n(.+)", prompt)
+    return m.group(1).strip()[:60] if m else ""

@@ -29,6 +29,7 @@
   .card .name { font-size: 12px; color: var(--muted); }
   .card .val { font: 600 26px var(--mono); margin-top: 4px; font-variant-numeric: tabular-nums; }
   .card .d { font: 12px var(--mono); }
+  .card .ci { font: 11px var(--mono); color: var(--muted); margin-top: 2px; }
   .up { color: var(--ok); } .down { color: var(--bad); } .flat { color: var(--muted); }
   ul.list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--surface); }
   ul.list li { padding: 10px 14px; border-top: 1px solid var(--line); }
@@ -85,6 +86,7 @@
       {% set x = d.delta %}
       <div class="d {{ 'flat' if x is none or (x|abs) < 0.0005 else ('up' if x > 0 else 'down') }}">
         {{ x|delta }}{% if d.baseline is not none %} from {{ "%.3f"|format(d.baseline) }}{% endif %}
+        {% if d.ci_low is not none %}<div class="ci">95% CI {{ d.ci_low|delta }} to {{ d.ci_high|delta }}</div>{% endif %}
       </div>
     </div>
   {% endmacro %}

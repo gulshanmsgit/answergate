@@ -5,11 +5,12 @@ No LLM needed: these alone are enough to gate a pipeline in CI.
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from ragcheck.models import Context
 
-RETRIEVAL_METRICS = ("hit_rate", "mrr", "context_precision", "context_recall")
+RETRIEVAL_METRICS = ("hit_rate", "mrr", "ndcg", "context_precision", "context_recall")
 
 
 SourceMatch = Literal["exact", "basename"]
@@ -43,9 +44,24 @@ def retrieval_scores(
     return {
         "hit_rate": 1.0 if first is not None else 0.0,
         "mrr": 1.0 / (first + 1) if first is not None else 0.0,
+        "ndcg": _ndcg(top, expected, k),
         "context_precision": sum(relevant) / len(top) if top else 0.0,
         "context_recall": len(found) / len(expected),
     }
+
+
+def _ndcg(top: list[str], expected: set[str], k: int) -> float:
+    """Binary nDCG@k. Each expected source earns credit once, at the rank where it first appears,
+    so five chunks of the same document can't inflate the score."""
+    seen: set[str] = set()
+    dcg = 0.0
+    for rank, cid in enumerate(top):
+        source = cid if cid in expected else _doc(cid)
+        if source in expected and source not in seen:
+            seen.add(source)
+            dcg += 1.0 / math.log2(rank + 2)
+    ideal = sum(1.0 / math.log2(rank + 2) for rank in range(min(len(expected), k)))
+    return dcg / ideal if ideal else 0.0
 
 
 def is_expected(context_id: str, expected_sources: list[str], match: SourceMatch) -> bool:

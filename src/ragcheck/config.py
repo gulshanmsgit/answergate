@@ -52,12 +52,17 @@ class JudgeConfig(BaseModel):
     timeout_s: float = 120.0
     # Parallel judge calls. Kept low: a local Ollama serves one request at a time, and queued calls time out
     concurrency: int = Field(default=2, ge=1)
+    # Grade each metric this many times and keep the median / majority. Odd, so votes can't tie.
+    samples: Literal[1, 3, 5, 7] = 1
+    # Faithfulness: a "supported" verdict counts only if the judge's quote is found in the retrieved text
+    verify_evidence: bool = True
 
 
 # Every metric RAGCheck can compute; names in `metrics` and `thresholds` are checked against these
 METRICS = (
     "hit_rate",
     "mrr",
+    "ndcg",
     "context_precision",
     "context_recall",
     "faithfulness",
@@ -75,6 +80,8 @@ class Thresholds(BaseModel):
     default_max_drop: float | None = 0.05
     # Every guardrail case must pass
     guardrails_must_pass: bool = True
+    # Fail on a drop only when its 95% confidence interval excludes zero (fewer false alarms from noise)
+    require_significance: bool = False
 
 
 class Config(BaseModel):
@@ -85,6 +92,7 @@ class Config(BaseModel):
         default_factory=lambda: [
             "hit_rate",
             "mrr",
+            "ndcg",
             "context_precision",
             "faithfulness",
             "relevance",

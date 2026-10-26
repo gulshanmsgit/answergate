@@ -11,7 +11,7 @@ import traceback
 from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, NoReturn, ParamSpec, TypeVar
+from typing import Annotated, Any, NoReturn, ParamSpec, TypeVar
 
 import typer
 
@@ -108,6 +108,8 @@ def _print_verdict(run: RunResult, verdict: Verdict) -> None:
                 typer.colors.GREEN if d.delta > 0.0005 else typer.colors.RED if d.delta < -0.0005 else None
             )
             delta = typer.style(f"{d.delta:+.3f}", fg=colour)
+            if d.ci_low is not None and d.ci_high is not None:
+                delta += typer.style(f"  [{d.ci_low:+.3f}, {d.ci_high:+.3f}]", dim=True)
         typer.echo(f"  {label(d.name):<20} {cur}  {delta}")
     typer.echo(
         f"\n  {len(run.results)} questions · p50 {run.latency_p50_ms:.0f} ms · p95 {run.latency_p95_ms:.0f} ms"
@@ -267,6 +269,67 @@ def compare(
     _print_verdict(cur, verdict)
     write_reports(cur, verdict, base, html, md)
     raise typer.Exit(0 if verdict.passed else EXIT_FAILED)
+
+
+@app.command()
+@_guard
+def calibrate(
+    config: ConfigOpt = Path("ragcheck.yaml"),
+    labels: Annotated[
+        Path | None, typer.Option(help="Your own labelled cases (JSONL). Default: the built-in set")
+    ] = None,
+    min_accuracy: Annotated[float, typer.Option(help="Fail if any metric's accuracy is below this")] = 0.85,
+) -> None:
+    """Check the judge against labelled cases: how often does it agree with the right answer?"""
+    from ragcheck.calibrate import calibrate as run_calibration
+    from ragcheck.calibrate import load_labels
+
+    cfg = _load(config)
+    try:
+        cases = load_labels(labels)
+        judge = make_judge(cfg)
+    except (ConfigError, FatalJudgeError) as e:
+        _die(str(e))
+    if judge is None:
+        _die("Calibration needs a judge: set judge.provider in the config.")
+
+    async def go() -> dict[str, Any]:
+        try:
+            await judge.preflight()
+            return await run_calibration(cases, judge, cfg)
+        finally:
+            await judge.aclose()
+
+    typer.echo(f"Calibrating {judge.name} on {len(cases)} labelled cases (samples: {cfg.judge.samples})\n")
+    try:
+        results = asyncio.run(go())
+    except FatalJudgeError as e:
+        _die(f"Judge setup problem: {e}")
+
+    typer.echo(f"  {'metric':<14} {'cases':>5} {'accuracy':>9} {'kappa':>7}  errors")
+    worst = 1.0
+    for r in results.values():
+        worst = min(worst, r.accuracy)
+        colour = typer.colors.GREEN if r.accuracy >= min_accuracy else typer.colors.RED
+        acc = typer.style(f"{r.accuracy:>9.2f}", fg=colour)
+        typer.echo(f"  {r.kind:<14} {r.n:>5} {acc} {r.kappa:>7.2f}  {r.errors}")
+    misses = [m for r in results.values() for m in r.misses]
+    if misses:
+        typer.echo("\n  Disagreements:")
+        for m in misses:
+            typer.echo(f"    - {m}")
+    typer.echo("")
+    if worst >= min_accuracy:
+        typer.secho(
+            f"CALIBRATED: every metric at or above {min_accuracy:.2f} accuracy", fg=typer.colors.GREEN
+        )
+        raise typer.Exit(0)
+    typer.secho(
+        f"NOT CALIBRATED: lowest accuracy {worst:.2f} < {min_accuracy:.2f}. "
+        "Try a stronger judge model, judge.samples: 3, or check the labels.",
+        fg=typer.colors.RED,
+    )
+    raise typer.Exit(EXIT_FAILED)
 
 
 @app.command("baseline")

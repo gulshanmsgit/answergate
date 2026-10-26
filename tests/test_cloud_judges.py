@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import quote_from_prompt
 
 from ragcheck.config import Config, load_golden
 from ragcheck.judges import FatalJudgeError, make_judge
@@ -29,7 +30,11 @@ SEEN: dict[str, int] = {}
 
 def verdict_for(prompt: str) -> dict[str, Any]:
     if "Split the answer" in prompt:
-        return {"claims": [{"claim": "refunds take 30 days", "supported": True}]}
+        return {
+            "claims": [
+                {"claim": "refunds take 30 days", "supported": True, "evidence": quote_from_prompt(prompt)}
+            ]
+        }
     if "decline" in prompt:
         return {"declined": True}
     if '"ok"' in prompt:

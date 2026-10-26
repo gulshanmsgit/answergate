@@ -50,6 +50,8 @@ class CaseResult(BaseModel):
     guardrails: dict[str, bool] = Field(default_factory=dict)
     # Short human-readable explanations, shown in the report
     notes: dict[str, str] = Field(default_factory=dict)
+    # Metric -> disagreement between judge samples (max - min); only with judge.samples > 1
+    judge_spread: dict[str, float] = Field(default_factory=dict)
 
 
 class RunResult(BaseModel):

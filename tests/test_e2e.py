@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
 from ragcheck.cli import app
@@ -79,11 +80,16 @@ class ScriptedJudge:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def complete(self, system: str, prompt: str, schema: Any = None) -> str:
+    async def complete(self, system: str, prompt: str, schema: Any = None, sample: int = 0) -> str:
         self.calls += 1
         if "Split the answer" in prompt:
             return json.dumps(
-                {"claims": [{"claim": "a", "supported": True}, {"claim": "b", "supported": False}]}
+                {
+                    "claims": [
+                        {"claim": "a", "supported": True, "evidence": quote_from_prompt(prompt)},
+                        {"claim": "b", "supported": False, "evidence": ""},
+                    ]
+                }
             )
         if "decline" in prompt:
             return json.dumps({"declined": True})

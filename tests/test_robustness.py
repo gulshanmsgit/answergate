@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
 from ragcheck.baseline import evaluate
@@ -49,7 +50,7 @@ class FnJudge:
         self.fn = fn
         self.calls = 0
 
-    async def complete(self, system: str, prompt: str, schema: Any = None) -> str:
+    async def complete(self, system: str, prompt: str, schema: Any = None, sample: int = 0) -> str:
         self.calls += 1
         return str(self.fn(prompt, self.calls))
 
@@ -70,7 +71,9 @@ GOOD = {"answer": "Refunds within 30 days.", "contexts": [{"id": "refund-policy.
 
 def ok_judge(prompt: str, n: int) -> str:
     if "Split the answer" in prompt:
-        return json.dumps({"claims": [{"claim": "x", "supported": True}]})
+        return json.dumps(
+            {"claims": [{"claim": "x", "supported": True, "evidence": quote_from_prompt(prompt)}]}
+        )
     if "declined" in prompt:
         return json.dumps({"declined": True})
     return json.dumps({"score": 5, "reason": "ok"})
@@ -150,7 +153,12 @@ def test_judge_odd_score_values(project: Path, score: Any) -> None:
     def odd(prompt: str, n: int) -> str:
         if "Split the answer" in prompt:
             return json.dumps(
-                {"claims": [{"claim": "x", "supported": "true"}, {"claim": "y", "supported": "no"}]}
+                {
+                    "claims": [
+                        {"claim": "x", "supported": "true", "evidence": quote_from_prompt(prompt)},
+                        {"claim": "y", "supported": "no", "evidence": ""},
+                    ]
+                }
             )
         return json.dumps({"score": score, "declined": True})
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from ragcheck.baseline import evaluate
@@ -19,7 +21,22 @@ def ctx(*ids: str) -> list[Context]:
 class TestRetrieval:
     def test_first_hit(self) -> None:
         s = retrieval_scores(ctx("a.md#0", "b.md#1"), ["a.md"], k=5)
-        assert s == {"hit_rate": 1.0, "mrr": 1.0, "context_precision": 0.5, "context_recall": 1.0}
+        assert s == {
+            "hit_rate": 1.0,
+            "mrr": 1.0,
+            "ndcg": 1.0,
+            "context_precision": 0.5,
+            "context_recall": 1.0,
+        }
+
+    def test_ndcg_rewards_rank_and_counts_each_source_once(self) -> None:
+        # Second expected doc found at rank 3: DCG = 1 + 1/log2(4) = 1.5, ideal = 1 + 1/log2(3)
+        s = retrieval_scores(ctx("a.md#0", "a.md#1", "b.md"), ["a.md", "b.md"], k=5)
+        assert s["ndcg"] == pytest.approx(1.5 / (1 + 1 / math.log2(3)))
+        # Repeating the same document doesn't add credit
+        assert retrieval_scores(ctx("a.md#0", "a.md#1", "a.md#2"), ["a.md"], k=5)["ndcg"] == 1.0
+        assert retrieval_scores(ctx("x", "a.md"), ["a.md"], k=5)["ndcg"] == pytest.approx(1 / math.log2(3))
+        assert retrieval_scores(ctx("x", "y"), ["a.md"], k=5)["ndcg"] == 0.0
 
     def test_second_hit_and_recall(self) -> None:
         s = retrieval_scores(ctx("x", "b.md#3", "y"), ["b.md", "c.md"], k=5)
@@ -143,4 +160,4 @@ class TestGate:
         base = make_run("b", {"1": {"hit_rate": 1.0}})
         cur = make_run("c", {"1": {"hit_rate": 0.0}})
         md = markdown(cur, evaluate(cur, base, Thresholds()))
-        assert "RAGCheck failed" in md and "| Hit rate | 1.000 | 0.000 | −1.000 |" in md
+        assert "RAGCheck failed" in md and "| Hit rate | 1.000 | 0.000 | −1.000 [−1.000, −1.000] |" in md

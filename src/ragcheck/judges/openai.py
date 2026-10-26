@@ -28,13 +28,13 @@ class OpenAIJudge:
         self.send_temperature = True
         self.format_mode = "json_schema"  # then "json_object", then "none"
 
-    def _body(self, system: str, prompt: str, schema: Schema | None) -> dict[str, Any]:
+    def _body(self, system: str, prompt: str, schema: Schema | None, sample: int = 0) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         }
         if self.send_temperature:
-            body["temperature"] = 0
+            body["temperature"] = 0 if sample == 0 else 0.8
         if schema and self.format_mode == "json_schema":
             body["response_format"] = {
                 "type": "json_schema",
@@ -59,10 +59,12 @@ class OpenAIJudge:
                 return True
         return False
 
-    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str:
+    async def complete(self, system: str, prompt: str, schema: Schema | None = None, sample: int = 0) -> str:
         for _ in range(4):  # at most one retry per parameter that can be dropped
             try:
-                r = await self.client.post("/chat/completions", json=self._body(system, prompt, schema))
+                r = await self.client.post(
+                    "/chat/completions", json=self._body(system, prompt, schema, sample)
+                )
             except httpx.ConnectError as e:
                 raise FatalJudgeError(f"Cannot reach {self.client.base_url}: {e}") from e
             if r.status_code == 400 and self._downgrade(r.text):

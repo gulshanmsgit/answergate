@@ -39,7 +39,9 @@ class FatalJudgeError(Exception):
 class Judge(Protocol):
     name: str
 
-    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str: ...
+    async def complete(
+        self, system: str, prompt: str, schema: Schema | None = None, sample: int = 0
+    ) -> str: ...
 
     async def aclose(self) -> None: ...
 
@@ -136,12 +138,12 @@ class CachedJudge:
             # Caching is an optimisation: a locked or read-only cache must not fail the run
             tmp.unlink(missing_ok=True)
 
-    async def _call(self, system: str, prompt: str, schema: Schema | None) -> dict[str, Any]:
+    async def _call(self, system: str, prompt: str, schema: Schema | None, sample: int = 0) -> dict[str, Any]:
         delay = self.backoff_s
         for attempt in range(1, self.attempts + 1):
             try:
                 async with self.sem:
-                    reply = await self.inner.complete(system, prompt, schema)
+                    reply = await self.inner.complete(system, prompt, schema, sample)
                 return parse_json(reply)
             except FatalJudgeError:
                 raise
@@ -152,8 +154,12 @@ class CachedJudge:
                 delay *= 2
         raise AssertionError("unreachable")
 
-    async def ask_json(self, system: str, prompt: str, schema: Schema | None = None) -> dict[str, Any]:
+    async def ask_json(
+        self, system: str, prompt: str, schema: Schema | None = None, sample: int = 0
+    ) -> dict[str, Any]:
         schema_key = json.dumps(schema, sort_keys=True) if schema else ""
+        if sample:
+            schema_key += f"#sample{sample}"
         key = hashlib.sha256(f"{self.identity}\0{system}\0{prompt}\0{schema_key}".encode()).hexdigest()
         path = self.dir / key[:2] / f"{key}.json"
         cached = self._read(path) if path.exists() else None
@@ -161,7 +167,7 @@ class CachedJudge:
             self.hits += 1
             return cached
         self.misses += 1
-        data = await self._call(system, prompt, schema)
+        data = await self._call(system, prompt, schema, sample)
         self._write(path, data)
         return data
 

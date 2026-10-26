@@ -20,7 +20,7 @@ class OllamaJudge:
         # Recent Ollama versions take a JSON schema in "format"; older ones only "json"
         self.schema_format = True
 
-    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str:
+    async def complete(self, system: str, prompt: str, schema: Schema | None = None, sample: int = 0) -> str:
         for _ in range(2):
             fmt: Any = schema if schema and self.schema_format else "json"
             try:
@@ -34,7 +34,8 @@ class OllamaJudge:
                         ],
                         "format": fmt,
                         "stream": False,
-                        "options": {"temperature": 0, "seed": 7},
+                        # Sample 0 is deterministic; extra samples vary so votes are independent
+                        "options": {"temperature": 0 if sample == 0 else 0.8, "seed": 7 + sample},
                     },
                 )
             except httpx.ConnectError as e:

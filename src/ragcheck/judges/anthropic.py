@@ -35,7 +35,8 @@ class AnthropicJudge:
         except anthropic.AnthropicError as e:
             raise FatalJudgeError(f"Anthropic client setup failed: {e}") from e
 
-    async def complete(self, system: str, prompt: str, schema: Schema | None = None) -> str:
+    async def complete(self, system: str, prompt: str, schema: Schema | None = None, sample: int = 0) -> str:
+        # sample only changes the cache key: Claude's sampling already varies between calls
         sdk = self._sdk
         # No temperature: the Messages API rejects sampling parameters on current models
         params: dict[str, Any] = {

@@ -62,7 +62,7 @@ async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) ->
         refused = g.looks_like_refusal(res.answer)
         if judge:
             try:
-                refused = await judged.is_refusal(judge, case.question, res.answer)
+                refused = await judged.is_refusal(judge, case.question, res.answer, cfg.judge.samples)
             except JudgeError as e:
                 # The heuristic above stands in, and the run records that the judge failed
                 res.judge_error = f"refusal: {e}"
@@ -74,21 +74,27 @@ async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) ->
 
     if judge is None:
         return
-    checks: list[tuple[str, Callable[[], Awaitable[tuple[float, str]]]]] = []
+    n, top = cfg.judge.samples, res.contexts[: cfg.k]
+    checks: list[tuple[str, Callable[[], Awaitable[judged.Judged]]]] = []
     if "faithfulness" in wanted:
-        checks.append(("faithfulness", lambda: judged.faithfulness(judge, res.answer, res.contexts[: cfg.k])))
+        verify = cfg.judge.verify_evidence
+        checks.append(("faithfulness", lambda: judged.faithfulness(judge, res.answer, top, n, verify)))
     if "relevance" in wanted:
-        checks.append(("relevance", lambda: judged.relevance(judge, case.question, res.answer)))
+        checks.append(("relevance", lambda: judged.relevance(judge, case.question, res.answer, n)))
     if "correctness" in wanted and case.reference_answer:
         ref = case.reference_answer
-        checks.append(("correctness", lambda: judged.correctness(judge, case.question, res.answer, ref)))
+        checks.append(("correctness", lambda: judged.correctness(judge, case.question, res.answer, ref, n)))
     failed: list[str] = []
     # Each metric stands alone: one bad judge reply loses that score, not the others
     for name, check in checks:
         try:
-            res.scores[name], res.notes[name] = await check()
+            result = await check()
         except JudgeError as e:
             failed.append(f"{name}: {e}")
+            continue
+        res.scores[name], res.notes[name] = result.score, result.note
+        if n > 1:
+            res.judge_spread[name] = result.spread
     if failed:
         res.judge_error = "; ".join(failed)[:500]
 
