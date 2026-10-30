@@ -48,25 +48,75 @@ def _code(text: str) -> str:
     return f"{fence}{pad}{text}{pad}{fence}"
 
 
+def _cell(text: str, limit: int) -> str:
+    """Plain text that fits one Markdown table cell."""
+    text = " ".join(text.split()).replace("|", "\\|")
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _drop(before: str, after: str) -> float:
+    """How much a regressed score fell; 1.0 for a non-numeric change such as a guardrail that broke."""
+    try:
+        return float(before) - float(after)
+    except ValueError:
+        return 1.0
+
+
+def headline(run: RunResult, verdict: Verdict) -> str:
+    """One line a reviewer reads first, e.g. "Correctness dropped 6% (0.925 → 0.869) · 12 of 44 questions got worse"."""
+    drops = [
+        f"{label(d.name)} dropped {-d.delta / d.baseline:.0%} ({d.baseline:.3f} → {d.current:.3f})"
+        for d in verdict.metrics
+        if d.delta is not None
+        and d.delta < 0
+        and d.baseline
+        and d.current is not None
+        and any(f.startswith(f"{d.name} ") for f in verdict.failures)
+    ]
+    worse = len(verdict.regressed_cases)
+    if worse:
+        drops.append(f"{worse} of {len(run.results)} questions got worse")
+    return " · ".join(drops)
+
+
 def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) -> str:
     status = "✅ **RAGCheck passed**" if verdict.passed else "❌ **RAGCheck failed**"
     lines = [COMMENT_MARKER, f"### {status}", ""]
+    if summary := headline(run, verdict):
+        lines += [f"**{summary}**", ""]
     lines.append(
         f"{len(run.results)} questions · p50 {run.latency_p50_ms:.0f} ms · p95 {run.latency_p95_ms:.0f} ms"
         + (f" · {run.errors} errors" if run.errors else "")
     )
+    if verdict.failures:
+        lines += ["", "**Why it failed**", *[f"- {f}" for f in verdict.failures]]
+    if verdict.regressions:
+        answers = {r.case.id: r.answer for r in run.results}
+        by_case: dict[str, list[str]] = {}
+        questions: dict[str, str] = {}
+        lost: dict[str, float] = {}
+        for r in verdict.regressions:
+            by_case.setdefault(r.case_id, []).append(f"{label(r.what)} {r.before} → {r.after}")
+            questions[r.case_id] = r.question
+            lost[r.case_id] = lost.get(r.case_id, 0.0) + _drop(r.before, r.after)
+        # Worst first: the questions that lost the most across their metrics
+        shown = sorted(by_case, key=lambda cid: -lost[cid])[:10]
+        lines += ["", f"**Questions that got worse** ({len(shown)} of {len(by_case)})", ""]
+        lines += ["| Question | What got worse | Answer now |", "|---|---|---|"]
+        for cid in shown:
+            lines.append(
+                f"| {_cell(questions[cid], 90)} | {'<br>'.join(by_case[cid])} | {_cell(answers.get(cid, ''), 140)} |"
+            )
     lines += ["", "| Metric | Baseline | This run | Change [95% CI] |", "|---|---:|---:|---:|"]
     for d in verdict.metrics + verdict.guardrails:
         base = f"{d.baseline:.3f}" if d.baseline is not None else "—"
         cur = f"{d.current:.3f}" if d.current is not None else "—"
         ci = f" [{_fmt_delta(d.ci_low)}, {_fmt_delta(d.ci_high)}]" if d.ci_low is not None else ""
         lines.append(f"| {label(d.name)} | {base} | {cur} | {_fmt_delta(d.delta)}{ci} |")
-    if verdict.failures:
-        lines += ["", "**Why it failed**", *[f"- {f}" for f in verdict.failures]]
     if verdict.regressions:
-        lines += ["", f"<details><summary>{len(verdict.regressed_cases)} question(s) regressed</summary>", ""]
+        lines += ["", f"<details><summary>Every change ({len(verdict.regressions)})</summary>", ""]
         lines += ["| Case | Metric | Before | After |", "|---|---|---:|---:|"]
-        for r in verdict.regressions[:25]:
+        for r in verdict.regressions[:50]:
             lines.append(f"| {_code(r.case_id)} | {label(r.what)} | {r.before} | {r.after} |")
         lines += ["", "</details>"]
     if verdict.warnings:

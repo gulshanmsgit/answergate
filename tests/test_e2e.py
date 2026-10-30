@@ -40,7 +40,7 @@ def test_broken_retriever_fails_the_gate(project: Path, monkeypatch: pytest.Monk
     assert "hit_rate dropped" in r.output
     assert "not saved as baseline" in r.output
     md = (project / "summary.md").read_text(encoding="utf-8")
-    assert "question(s) regressed" in md and "`refund`" in md
+    assert "Questions that got worse" in md and "questions got worse**" in md and "`refund`" in md
 
 
 def test_unsafe_pipeline_fails_guardrails(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:

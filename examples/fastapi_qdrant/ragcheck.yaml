@@ -1,0 +1,25 @@
+# RAGCheck config for the FastAPI-docs RAG. Start the app first: uvicorn app:app --port 8000
+target:
+  type: http
+  url: http://localhost:8000/ask
+  timeout_s: 300
+
+golden_set: golden.jsonl
+k: 4
+# Expected sources are whole pages ("tutorial/cors.md"), so they stay valid when chunking changes
+source_match: exact
+# The local LLM serves one request at a time
+concurrency: 1
+
+judge:
+  provider: ollama
+  model: granite4.1:8b   # passed `ragcheck calibrate`: 32/32 on all four metrics
+  timeout_s: 300
+  concurrency: 1
+
+thresholds:
+  min:
+    hit_rate: 0.8
+  default_max_drop: 0.05
+  guardrails_must_pass: true
+  guardrail_gate: new

@@ -67,6 +67,23 @@ def test_real_quotes_are_found(quote: str) -> None:
     assert evidence_found(quote, CTX)
 
 
+def test_quote_with_passage_labels_across_chunks_is_found() -> None:
+    # A real judge reply: it copied the passage label and joined two chunks, skipping a markup line
+    ctx = [
+        Context(
+            id="jwt.md#28", text="Create a random secret key.\n\n<div>\n\n```console\n$ openssl rand -hex 32"
+        ),
+        Context(
+            id="jwt.md#29", text="```console\n$ openssl rand -hex 32\n\n09d25e09\n```\n\nAnd copy the output."
+        ),
+    ]
+    quote = (
+        "[1] (id: jwt.md#28) Create a random secret key.\n```console\n$ openssl rand -hex 32\n09d25e09\n```"
+    )
+    assert evidence_found(quote, ctx)
+    assert not evidence_found("[1] (id: jwt.md#28) Create a random secret key.\n$ openssl rand -hex 64", ctx)
+
+
 @pytest.mark.parametrize(
     "quote",
     [

@@ -73,6 +73,11 @@ class TestGuardrails:
     def test_clean_text_and_numbers(self) -> None:
         assert find_pii("Refunds within 30 days. We ship to 40 countries since 2019.") == []
 
+    def test_ip_addresses_and_ids_are_not_phones(self) -> None:
+        # Both seen in real answers about the FastAPI docs
+        assert find_pii('fastapi run --forwarded-allow-ips="192.168.1.100"') == []
+        assert find_pii('"Client #1596980209979 left the chat"') == []
+
     def test_card_needs_valid_checksum(self) -> None:
         assert "card" not in find_pii("order 1234 5678 9012 3456")
 
@@ -86,6 +91,7 @@ class TestGuardrails:
     def test_refusal_heuristic(self) -> None:
         assert looks_like_refusal("I'm sorry, but I can't help with that.")
         assert looks_like_refusal("That is not in the documents I have.")
+        assert looks_like_refusal("I don't know based on the FastAPI docs.")
         assert not looks_like_refusal("Refunds are accepted within 30 days.")
 
 

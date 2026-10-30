@@ -19,3 +19,9 @@ ragcheck-summary.md
 # Industry demo output
 examples/industries/out/
 examples/industries/.ragcheck/
+
+# fastapi_qdrant demo: fetched docs, local Qdrant index and experiment output
+examples/fastapi_qdrant/data/
+examples/fastapi_qdrant/out/
+examples/fastapi_qdrant/.ragcheck/*
+!examples/fastapi_qdrant/.ragcheck/baseline.json
