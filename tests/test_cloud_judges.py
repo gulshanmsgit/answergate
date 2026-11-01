@@ -17,11 +17,11 @@ from typing import Any
 import pytest
 from conftest import quote_from_prompt
 
-from ragcheck.config import Config, load_golden
-from ragcheck.judges import FatalJudgeError, make_judge
-from ragcheck.models import RunResult
-from ragcheck.runner import run
-from ragcheck.targets import make_target
+from answergate.config import Config, load_golden
+from answergate.judges import FatalJudgeError, make_judge
+from answergate.models import RunResult
+from answergate.runner import run
+from answergate.targets import make_target
 
 REQUESTS: list[dict[str, Any]] = []
 COUNTS: dict[str, int] = {}
@@ -316,9 +316,9 @@ def test_openai_refusal_is_per_question(project: Path, server: str) -> None:
 def test_cli_bad_key_exits_2_quickly(project: Path, server: str) -> None:
     from typer.testing import CliRunner
 
-    from ragcheck.cli import app
+    from answergate.cli import app
 
-    (project / "ragcheck.yaml").write_text(
+    (project / "answergate.yaml").write_text(
         "target: {type: python, callable: 'fake_rag:answer'}\n"
         f"judge: {{provider: anthropic, base_url: '{server}/anthropic/auth', api_key_env: FAKE_KEY}}\n",
         encoding="utf-8",

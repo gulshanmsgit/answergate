@@ -16,10 +16,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from ragcheck.config import Config, ConfigError
-from ragcheck.judges import CachedJudge, FatalJudgeError, JudgeError
-from ragcheck.metrics import judged
-from ragcheck.models import Context
+from answergate.config import Config, ConfigError
+from answergate.judges import CachedJudge, FatalJudgeError, JudgeError
+from answergate.metrics import judged
+from answergate.models import Context
 
 Kind = Literal["faithfulness", "relevance", "correctness", "refusal"]
 
@@ -74,7 +74,7 @@ def cohen_kappa(tp: int, fp: int, tn: int, fn: int) -> float:
 
 def load_labels(path: Path | None) -> list[LabelledCase]:
     if path is None:
-        text = (resources.files("ragcheck") / "templates" / "calibration.jsonl").read_text(encoding="utf-8")
+        text = (resources.files("answergate") / "templates" / "calibration.jsonl").read_text(encoding="utf-8")
         source = "built-in calibration set"
     else:
         if not path.exists():

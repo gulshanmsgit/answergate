@@ -1,4 +1,4 @@
-"""Break six industry RAG pipelines on purpose and check that RAGCheck catches every break.
+"""Break six industry RAG pipelines on purpose and check that AnswerGate catches every break.
 
 For each industry it:
   1. runs the healthy pipeline and saves it as the baseline (must pass),
@@ -33,14 +33,14 @@ sys.path.insert(0, str(HERE))
 
 from demo_rag import FAULTS, INDUSTRIES  # noqa: E402
 
-from ragcheck.baseline import evaluate, load_run, save_baseline, save_run  # noqa: E402
-from ragcheck.config import Config, load_config, load_golden  # noqa: E402
-from ragcheck.guardrails import looks_like_refusal  # noqa: E402
-from ragcheck.judges import make_judge  # noqa: E402
-from ragcheck.models import RunResult  # noqa: E402
-from ragcheck.report import write_reports  # noqa: E402
-from ragcheck.runner import run  # noqa: E402
-from ragcheck.targets import make_target  # noqa: E402
+from answergate.baseline import evaluate, load_run, save_baseline, save_run  # noqa: E402
+from answergate.config import Config, load_config, load_golden  # noqa: E402
+from answergate.guardrails import looks_like_refusal  # noqa: E402
+from answergate.judges import make_judge  # noqa: E402
+from answergate.models import RunResult  # noqa: E402
+from answergate.report import write_reports  # noqa: E402
+from answergate.runner import run  # noqa: E402
+from answergate.targets import make_target  # noqa: E402
 
 # What each fault should trip. "judge" faults are invisible to retrieval metrics and regex guardrails.
 EXPECTED = {
@@ -68,7 +68,7 @@ class Row:
 
 def configure(industry: str, judge: str | None, model: str | None, out: Path) -> Config:
     cfg = load_config(HERE / f"{industry}.yaml")
-    cfg.workdir = str(out / industry / ".ragcheck")
+    cfg.workdir = str(out / industry / ".answergate")
     if judge:
         cfg.judge.provider = judge  # type: ignore[assignment]
         cfg.judge.model = model
@@ -101,7 +101,7 @@ def check(industry: str, cfg: Config, out: Path, scenario: str, fault: str, judg
     why = "; ".join(verdict.failures)[:160]
 
     if scenario == "baseline":
-        # Like `ragcheck baseline`: guardrail failures of the healthy pipeline are accepted as known
+        # Like `answergate baseline`: guardrail failures of the healthy pipeline are accepted as known
         # failures (guardrail_gate: new then warns on them), but nothing else may fail
         known = verdict.failures and all(f.startswith("Guardrail") for f in verdict.failures)
         if verdict.passed or known:
@@ -190,7 +190,7 @@ def main() -> int:
     )
     edge = slices(baselines)
     lines = [
-        "# RAGCheck industry demo scorecard",
+        "# AnswerGate industry demo scorecard",
         "",
         summary,
         "",

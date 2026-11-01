@@ -11,11 +11,11 @@ import pytest
 from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
-from ragcheck.cli import app
-from ragcheck.config import load_config, load_golden
-from ragcheck.judges import CachedJudge
-from ragcheck.runner import run
-from ragcheck.targets import make_target
+from answergate.cli import app
+from answergate.config import load_config, load_golden
+from answergate.judges import CachedJudge
+from answergate.runner import run
+from answergate.targets import make_target
 
 cli = CliRunner()
 
@@ -27,14 +27,14 @@ def invoke(*args: str) -> Any:
 def test_good_run_passes_and_becomes_baseline(project: Path) -> None:
     r = invoke("run", "--save-baseline", "--md", "summary.md")
     assert r.exit_code == 0, r.output
-    assert (project / ".ragcheck" / "baseline.json").exists()
-    assert (project / "ragcheck-report.html").read_text(encoding="utf-8").count('class="case"') == 4
-    assert "RAGCheck passed" in (project / "summary.md").read_text(encoding="utf-8")
+    assert (project / ".answergate" / "baseline.json").exists()
+    assert (project / "answergate-report.html").read_text(encoding="utf-8").count('class="case"') == 4
+    assert "AnswerGate passed" in (project / "summary.md").read_text(encoding="utf-8")
 
 
 def test_broken_retriever_fails_the_gate(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert invoke("run", "--save-baseline").exit_code == 0
-    monkeypatch.setenv("RAGCHECK_TEST_MODE", "broken")
+    monkeypatch.setenv("ANSWERGATE_TEST_MODE", "broken")
     r = invoke("run", "--save-baseline", "--md", "summary.md")
     assert r.exit_code == 1
     assert "hit_rate dropped" in r.output
@@ -44,7 +44,7 @@ def test_broken_retriever_fails_the_gate(project: Path, monkeypatch: pytest.Monk
 
 
 def test_unsafe_pipeline_fails_guardrails(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAGCHECK_TEST_MODE", "unsafe")
+    monkeypatch.setenv("ANSWERGATE_TEST_MODE", "unsafe")
     r = invoke("run")
     assert r.exit_code == 1
     for rail in ("pii", "injection", "refusal"):
@@ -53,22 +53,22 @@ def test_unsafe_pipeline_fails_guardrails(project: Path, monkeypatch: pytest.Mon
 
 def test_compare_rechecks_saved_runs(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     invoke("run", "--save-baseline")
-    good = sorted((project / ".ragcheck" / "runs").glob("*.json"))[-1]
-    monkeypatch.setenv("RAGCHECK_TEST_MODE", "broken")
+    good = sorted((project / ".answergate" / "runs").glob("*.json"))[-1]
+    monkeypatch.setenv("ANSWERGATE_TEST_MODE", "broken")
     invoke("run")
     assert invoke("compare").exit_code == 1  # latest (broken) run versus the good baseline
     assert invoke("compare", str(good)).exit_code == 0
 
 
 def test_bad_config_exits_2(project: Path) -> None:
-    (project / "ragcheck.yaml").write_text("target: {type: carrier-pigeon}", encoding="utf-8")
+    (project / "answergate.yaml").write_text("target: {type: carrier-pigeon}", encoding="utf-8")
     assert invoke("run").exit_code == 2
 
 
 def test_init_writes_starter_files(tmp_path: Path) -> None:
     r = invoke("init", str(tmp_path))
     assert r.exit_code == 0
-    assert load_config(tmp_path / "ragcheck.yaml").target.type == "http"
+    assert load_config(tmp_path / "answergate.yaml").target.type == "http"
     assert len(load_golden(tmp_path / "golden.jsonl")) == 4
 
 
@@ -100,12 +100,12 @@ class ScriptedJudge:
 
 
 def test_judged_metrics_and_cache(project: Path) -> None:
-    cfg = load_config(project / "ragcheck.yaml")
+    cfg = load_config(project / "answergate.yaml")
     cases = load_golden(project / "golden.jsonl")
     inner = ScriptedJudge()
 
     def once() -> Any:
-        judge = CachedJudge(inner, project / ".ragcheck" / "cache")
+        judge = CachedJudge(inner, project / ".answergate" / "cache")
         return asyncio.run(run(cfg, cases, make_target(cfg), judge)), judge
 
     first, j1 = once()

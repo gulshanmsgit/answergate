@@ -1,10 +1,10 @@
 """Live checks against real judge models. Off by default: they cost money and need your own keys.
 
 Run them yourself:
-    RAGCHECK_LIVE=anthropic            ANTHROPIC_API_KEY=...   pytest tests/test_live_judges.py -v
-    RAGCHECK_LIVE=openai               OPENAI_API_KEY=...      RAGCHECK_LIVE_OPENAI_MODEL=<model> pytest ...
-    RAGCHECK_LIVE=ollama               (ollama serve running, model pulled)
-Several at once: RAGCHECK_LIVE=anthropic,ollama
+    ANSWERGATE_LIVE=anthropic            ANTHROPIC_API_KEY=...   pytest tests/test_live_judges.py -v
+    ANSWERGATE_LIVE=openai               OPENAI_API_KEY=...      ANSWERGATE_LIVE_OPENAI_MODEL=<model> pytest ...
+    ANSWERGATE_LIVE=ollama               (ollama serve running, model pulled)
+Several at once: ANSWERGATE_LIVE=anthropic,ollama
 
 Each test grades hand-made cases whose right answer is obvious, so a sane judge must agree.
 About 30 judge calls per provider.
@@ -18,14 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from ragcheck.config import Config
-from ragcheck.judges import CachedJudge, make_judge
-from ragcheck.metrics import judged
-from ragcheck.models import Context
+from answergate.config import Config
+from answergate.judges import CachedJudge, make_judge
+from answergate.metrics import judged
+from answergate.models import Context
 
-LIVE = [p.strip() for p in os.environ.get("RAGCHECK_LIVE", "").split(",") if p.strip()]
+LIVE = [p.strip() for p in os.environ.get("ANSWERGATE_LIVE", "").split(",") if p.strip()]
 pytestmark = pytest.mark.skipif(
-    not LIVE, reason="set RAGCHECK_LIVE=anthropic,openai,ollama to run live judge tests"
+    not LIVE, reason="set ANSWERGATE_LIVE=anthropic,openai,ollama to run live judge tests"
 )
 
 CTX = [
@@ -37,9 +37,9 @@ Q = "How long do I have to return an item?"
 
 
 def judge_for(provider: str, cache: Path) -> CachedJudge:
-    from ragcheck.config import Config
+    from answergate.config import Config
 
-    model = {"openai": os.environ.get("RAGCHECK_LIVE_OPENAI_MODEL")}.get(provider)
+    model = {"openai": os.environ.get("ANSWERGATE_LIVE_OPENAI_MODEL")}.get(provider)
     cfg = Config.model_validate(
         {
             "target": {"type": "python", "callable": "x:y"},
@@ -142,7 +142,7 @@ def test_scores_are_stable_across_uncached_runs(provider: str, tmp_path: Path) -
 
 def test_real_judge_passes_calibration(provider: str, tmp_path: Path) -> None:
     """The built-in 32 labelled cases: the honest measure of how far to trust this judge."""
-    from ragcheck.calibrate import calibrate, load_labels
+    from answergate.calibrate import calibrate, load_labels
 
     async def main() -> dict[str, float]:
         j = judge_for(provider, tmp_path)

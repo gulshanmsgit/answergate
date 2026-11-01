@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from ragcheck.config import Config, load_golden
-from ragcheck.models import RunResult
-from ragcheck.runner import run
-from ragcheck.targets import make_target
+from answergate.config import Config, load_golden
+from answergate.models import RunResult
+from answergate.runner import run
+from answergate.targets import make_target
 
 CALLS: dict[str, int] = {}
 

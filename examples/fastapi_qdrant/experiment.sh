@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")"
 PY=../../.venv/Scripts/python
-RC=../../.venv/Scripts/ragcheck
+RC=../../.venv/Scripts/answergate
 mkdir -p out
 cp rag.py out/rag.py.orig
 trap 'cp out/rag.py.orig rag.py; kill $APP 2>/dev/null' EXIT
@@ -19,12 +19,12 @@ serve() {
 
 start=$(date +%s)
 serve baseline
-$RC run -c ragcheck.yaml -l "chunk-1000" --html out/baseline.html --md out/baseline.md
-$RC baseline -c ragcheck.yaml
+$RC run -c answergate.yaml -l "chunk-1000" --html out/baseline.html --md out/baseline.md
+$RC baseline -c answergate.yaml
 kill $APP; wait $APP 2>/dev/null
 echo "baseline done in $(( $(date +%s) - start ))s"
 
 sed -i "s/^CHUNK_SIZE = .*/CHUNK_SIZE = $1  # characters per chunk/; s/^CHUNK_OVERLAP = .*/CHUNK_OVERLAP = $2  # characters repeated between neighbouring chunks/" rag.py
 serve "chunk-$1"
-$RC run -c ragcheck.yaml -l "chunk-$1" --html "out/chunk-$1.html" --md "out/chunk-$1.md"
+$RC run -c answergate.yaml -l "chunk-$1" --html "out/chunk-$1.html" --md "out/chunk-$1.md"
 echo "exit $? · total $(( $(date +%s) - start ))s"

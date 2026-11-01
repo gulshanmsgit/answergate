@@ -1,4 +1,4 @@
-# RAGCheck config for the FastAPI-docs RAG. Start the app first: uvicorn app:app --port 8000
+# AnswerGate config for the FastAPI-docs RAG. Start the app first: uvicorn app:app --port 8000
 target:
   type: http
   url: http://localhost:8000/ask
@@ -13,7 +13,7 @@ concurrency: 1
 
 judge:
   provider: ollama
-  model: granite4.1:8b   # passed `ragcheck calibrate`: 32/32 on all four metrics
+  model: granite4.1:8b   # passed `answergate calibrate`: 32/32 on all four metrics
   timeout_s: 300
   concurrency: 1
 

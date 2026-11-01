@@ -16,8 +16,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ragcheck.judges import CachedJudge, JudgeError, Schema
-from ragcheck.models import Context
+from answergate.judges import CachedJudge, JudgeError, Schema
+from answergate.models import Context
 
 JUDGED_METRICS = ("faithfulness", "relevance", "correctness")
 

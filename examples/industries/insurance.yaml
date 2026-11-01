@@ -3,7 +3,7 @@ target:
   type: python
   callable: demo_rag:insurance
 golden_set: insurance/golden.jsonl
-workdir: .ragcheck/insurance
+workdir: .answergate/insurance
 judge:
   provider: none        # run_demo.py --judge ollama|anthropic|openai switches a judge on
 k: 3

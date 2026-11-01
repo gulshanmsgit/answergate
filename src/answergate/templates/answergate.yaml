@@ -1,4 +1,4 @@
-# RAGCheck config. Docs: https://github.com/gulshanmsgit/ragcheck
+# AnswerGate config. Docs: https://github.com/gulshanmsgit/answergate
 
 # How to call your pipeline. Option 1: an HTTP endpoint.
 target:

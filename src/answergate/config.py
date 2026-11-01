@@ -1,4 +1,4 @@
-"""`ragcheck.yaml`: what to call, what to ask, and when to fail."""
+"""`answergate.yaml`: what to call, what to ask, and when to fail."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from ragcheck.models import GoldenCase
+from answergate.models import GoldenCase
 
 
 class ConfigError(Exception):
@@ -58,7 +58,7 @@ class JudgeConfig(BaseModel):
     verify_evidence: bool = True
 
 
-# Every metric RAGCheck can compute; names in `metrics` and `thresholds` are checked against these
+# Every metric AnswerGate can compute; names in `metrics` and `thresholds` are checked against these
 METRICS = (
     "hit_rate",
     "mrr",
@@ -81,7 +81,7 @@ class Thresholds(BaseModel):
     # Every guardrail case must pass
     guardrails_must_pass: bool = True
     # "all": any guardrail failure fails the gate. "new": a question that already failed the same guardrail
-    # in the baseline is a known failure and only warns, so a team can adopt RAGCheck on an imperfect
+    # in the baseline is a known failure and only warns, so a team can adopt AnswerGate on an imperfect
     # pipeline and still block every new failure
     guardrail_gate: Literal["all", "new"] = "all"
     # Fail on a drop only when its 95% confidence interval excludes zero (fewer false alarms from noise)
@@ -119,7 +119,7 @@ class Config(BaseModel):
     # Strings the PII check ignores, e.g. your public support email
     pii_allow: list[str] = Field(default_factory=list)
     # Where run history, the baseline and the judge cache live
-    workdir: str = ".ragcheck"
+    workdir: str = ".answergate"
 
     # Set by load_config: the folder relative paths resolve against
     root: Path = Field(default=Path("."), exclude=True)
@@ -168,7 +168,7 @@ def expand_env(value: str) -> str:
 def load_config(path: str | Path) -> Config:
     p = Path(path)
     if not p.exists():
-        raise ConfigError(f"Config not found: {p}. Run `ragcheck init` to create one.")
+        raise ConfigError(f"Config not found: {p}. Run `answergate init` to create one.")
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         cfg = Config.model_validate(raw)

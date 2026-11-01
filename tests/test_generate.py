@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from ragcheck.cli import app
-from ragcheck.generate import Bm25, check_llm_question, generate_llm, generate_structure, load_sections
-from ragcheck.judges import CachedJudge
+from answergate.cli import app
+from answergate.generate import Bm25, check_llm_question, generate_llm, generate_structure, load_sections
+from answergate.judges import CachedJudge
 
 CORS = """# CORS
 
@@ -157,7 +157,7 @@ def test_llm_mode_keeps_only_checked_questions(docs: Path, tmp_path: Path) -> No
     assert result.dropped["no fact in passage"] >= 1
 
 
-def test_cli_writes_a_golden_set_that_ragcheck_can_load(
+def test_cli_writes_a_golden_set_that_answergate_can_load(
     docs: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -170,7 +170,7 @@ def test_cli_writes_a_golden_set_that_ragcheck_can_load(
         for line in (tmp_path / "golden.generated.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert sum(1 for x in rows if x.get("expect_refusal")) == 2
-    from ragcheck.config import load_golden
+    from answergate.config import load_golden
 
     assert len(load_golden(tmp_path / "golden.generated.jsonl")) == 6
     # Never overwrites a reviewed file by accident
@@ -180,7 +180,7 @@ def test_cli_writes_a_golden_set_that_ragcheck_can_load(
 
 def test_cli_llm_mode_needs_a_judge(docs: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "ragcheck.yaml").write_text(
+    (tmp_path / "answergate.yaml").write_text(
         "target: { type: python, callable: x:y }\njudge: { provider: none }\n", encoding="utf-8"
     )
     r = CliRunner().invoke(app, ["generate", str(docs), "--mode", "llm"])

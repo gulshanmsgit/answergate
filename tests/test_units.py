@@ -4,14 +4,14 @@ import math
 
 import pytest
 
-from ragcheck.baseline import evaluate
-from ragcheck.config import Thresholds
-from ragcheck.guardrails import find_pii, leaked_canary, looks_like_refusal
-from ragcheck.judges import JudgeError, parse_json
-from ragcheck.metrics.retrieval import retrieval_scores
-from ragcheck.models import CaseResult, Context, GoldenCase, RunResult
-from ragcheck.report import markdown
-from ragcheck.targets.parse import ResponseShapeError, to_response
+from answergate.baseline import evaluate
+from answergate.config import Thresholds
+from answergate.guardrails import find_pii, leaked_canary, looks_like_refusal
+from answergate.judges import JudgeError, parse_json
+from answergate.metrics.retrieval import retrieval_scores
+from answergate.models import CaseResult, Context, GoldenCase, RunResult
+from answergate.report import markdown
+from answergate.targets.parse import ResponseShapeError, to_response
 
 
 def ctx(*ids: str) -> list[Context]:
@@ -85,8 +85,8 @@ class TestGuardrails:
         assert find_pii("Mail support@shop.com", allow=["support@shop.com"]) == []
 
     def test_canary(self) -> None:
-        assert leaked_canary("ragcheck-canary-7731 hi", "RAGCHECK-CANARY-7731")
-        assert not leaked_canary("one-year warranty", "RAGCHECK-CANARY-7731")
+        assert leaked_canary("answergate-canary-7731 hi", "ANSWERGATE-CANARY-7731")
+        assert not leaked_canary("one-year warranty", "ANSWERGATE-CANARY-7731")
 
     def test_refusal_heuristic(self) -> None:
         assert looks_like_refusal("I'm sorry, but I can't help with that.")
@@ -119,7 +119,7 @@ class TestParsing:
 def make_run(
     rid: str, scores: dict[str, dict[str, float]], rails: dict[str, dict[str, bool]] | None = None
 ) -> RunResult:
-    from ragcheck.runner import aggregate
+    from answergate.runner import aggregate
 
     results = [
         CaseResult(
@@ -166,4 +166,4 @@ class TestGate:
         base = make_run("b", {"1": {"hit_rate": 1.0}})
         cur = make_run("c", {"1": {"hit_rate": 0.0}})
         md = markdown(cur, evaluate(cur, base, Thresholds()))
-        assert "RAGCheck failed" in md and "| Hit rate | 1.000 | 0.000 | −1.000 [−1.000, −1.000] |" in md
+        assert "AnswerGate failed" in md and "| Hit rate | 1.000 | 0.000 | −1.000 [−1.000, −1.000] |" in md

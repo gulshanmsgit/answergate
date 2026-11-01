@@ -10,9 +10,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ragcheck.config import ConfigError, PythonTargetConfig
-from ragcheck.models import TargetResponse
-from ragcheck.targets.parse import to_response
+from answergate.config import ConfigError, PythonTargetConfig
+from answergate.models import TargetResponse
+from answergate.targets.parse import to_response
 
 
 def load_callable(spec: str, root: Path) -> Callable[..., Any]:
@@ -56,7 +56,7 @@ async def _in_daemon_thread(fn: Callable[[str], Any], arg: str) -> Any:
         with contextlib.suppress(RuntimeError):
             loop.call_soon_threadsafe(settle, ok, result)
 
-    threading.Thread(target=work, daemon=True, name="ragcheck-target").start()
+    threading.Thread(target=work, daemon=True, name="answergate-target").start()
     return await fut
 
 

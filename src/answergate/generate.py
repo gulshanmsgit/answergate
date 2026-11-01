@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from ragcheck.judges import CachedJudge, JudgeError
-from ragcheck.metrics.judged import evidence_found
-from ragcheck.models import Context, GoldenCase
+from answergate.judges import CachedJudge, JudgeError
+from answergate.metrics.judged import evidence_found
+from answergate.models import Context, GoldenCase
 
 Mode = Literal["structure", "llm"]
 DOC_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst")

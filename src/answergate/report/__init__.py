@@ -6,9 +6,9 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from ragcheck.baseline import Verdict
-from ragcheck.metrics.retrieval import is_expected
-from ragcheck.models import RunResult
+from answergate.baseline import Verdict
+from answergate.metrics.retrieval import is_expected
+from answergate.models import RunResult
 
 LABELS = {
     "hit_rate": "Hit rate",
@@ -25,7 +25,7 @@ LABELS = {
 }
 
 # Marker so the GitHub Action can find and update its own PR comment
-COMMENT_MARKER = "<!-- ragcheck-report -->"
+COMMENT_MARKER = "<!-- answergate-report -->"
 
 
 def label(name: str) -> str:
@@ -80,7 +80,7 @@ def headline(run: RunResult, verdict: Verdict) -> str:
 
 
 def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) -> str:
-    status = "✅ **RAGCheck passed**" if verdict.passed else "❌ **RAGCheck failed**"
+    status = "✅ **AnswerGate passed**" if verdict.passed else "❌ **AnswerGate failed**"
     lines = [COMMENT_MARKER, f"### {status}", ""]
     if summary := headline(run, verdict):
         lines += [f"**{summary}**", ""]
@@ -128,7 +128,7 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
 
 def html(run: RunResult, verdict: Verdict, baseline: RunResult | None, limit: int = 500) -> str:
     env = Environment(
-        loader=PackageLoader("ragcheck", "templates"),
+        loader=PackageLoader("answergate", "templates"),
         # Answers and contexts are untrusted text; the template's .j2 suffix would disable the default
         autoescape=select_autoescape(enabled_extensions=("html", "j2"), default=True),
     )

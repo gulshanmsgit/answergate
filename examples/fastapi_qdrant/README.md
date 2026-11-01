@@ -9,7 +9,7 @@ A small but real RAG app: **FastAPI** serving answers about the **FastAPI docume
 | Vector store | Qdrant (local mode, or a server via `QDRANT_URL`) |
 | Generation | `granite4.1:8b` via Ollama, temperature 0, told to answer only from the passages |
 | Golden set | 44 hand-written questions: 40 answerable, each with a reference answer checked against the docs, and 4 it must decline |
-| Judge | `granite4.1:8b`, which scored 32/32 on `ragcheck calibrate` |
+| Judge | `granite4.1:8b`, which scored 32/32 on `answergate calibrate` |
 
 ## Run it
 
@@ -18,7 +18,7 @@ pip install -e ../.. -r requirements.txt
 ollama pull granite4.1:8b
 python fetch_docs.py                 # downloads the pinned docs into data/docs
 uvicorn app:app --port 8000          # indexes into Qdrant on first start
-ragcheck run -c ragcheck.yaml        # in another terminal
+answergate run -c answergate.yaml        # in another terminal
 ```
 
 `bash experiment.sh 250 40` runs the whole comparison below: a baseline at the committed settings, then a run with `CHUNK_SIZE=250, CHUNK_OVERLAP=40`.
@@ -36,7 +36,7 @@ It's a one-line change that looks harmless in review. Smaller chunks are often r
 | Answer relevance | 0.988 | 0.900 | **−0.087** [−0.169, −0.025] |
 | No PII leaked / refuses off-topic | 1.000 / 1.000 | 1.000 / 1.000 | ±0 |
 
-**RAGCheck failed the change:**
+**AnswerGate failed the change:**
 - correctness and relevance both dropped more than the allowed 0.05;
 - in both cases the whole 95% interval lies below zero, so this isn't noise;
 - 19 of 44 questions got worse.
@@ -49,9 +49,9 @@ The model then honestly answers "I don't know based on the FastAPI docs." That h
 
 A retrieval-only dashboard would have approved this PR. It takes answer-level checks against reference answers to see it.
 
-## What the real pipeline taught RAGCheck
+## What the real pipeline taught AnswerGate
 
-The first run on real documents found three bugs in RAGCheck itself, now fixed with regression tests:
+The first run on real documents found three bugs in AnswerGate itself, now fixed with regression tests:
 
 | Bug | Seen in | Fix |
 |---|---|---|
@@ -69,7 +69,7 @@ The judge isn't perfect either. Once in 88 judged answers, granite garbled its o
 ## The pull-request check
 
 [`.github/workflows/rag-pr.yml`](../../.github/workflows/rag-pr.yml) runs on a pull request that changes this folder. It:
-1. starts the app and runs RAGCheck against the committed baseline ([`.ragcheck/baseline.json`](.ragcheck/baseline.json));
+1. starts the app and runs AnswerGate against the committed baseline ([`.answergate/baseline.json`](.answergate/baseline.json));
 2. posts or updates one PR comment headed by what broke and the worst questions;
 3. uploads the HTML report;
 4. fails the check on a regression.

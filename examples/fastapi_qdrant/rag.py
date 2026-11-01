@@ -1,6 +1,6 @@
 """A small but real RAG pipeline over the FastAPI docs: chunk -> embed -> Qdrant -> local LLM.
 
-The settings below are the knobs a team changes in a pull request. RAGCheck's job is to say
+The settings below are the knobs a team changes in a pull request. AnswerGate's job is to say
 whether the change made answers worse.
 """
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from typing import Literal
 
-from ragcheck.models import Context
+from answergate.models import Context
 
 RETRIEVAL_METRICS = ("hit_rate", "mrr", "ndcg", "context_precision", "context_recall")
 

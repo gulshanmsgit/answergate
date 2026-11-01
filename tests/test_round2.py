@@ -12,21 +12,21 @@ from typing import Any
 
 import pytest
 
-from ragcheck.baseline import evaluate
-from ragcheck.config import ConfigError, Thresholds, load_config, load_golden
-from ragcheck.judges import CachedJudge
-from ragcheck.metrics.retrieval import retrieval_scores
-from ragcheck.models import CaseResult, Context, GoldenCase, RunResult
-from ragcheck.report import markdown
-from ragcheck.runner import aggregate, run
-from ragcheck.targets import make_target
-from ragcheck.targets.parse import to_response
+from answergate.baseline import evaluate
+from answergate.config import ConfigError, Thresholds, load_config, load_golden
+from answergate.judges import CachedJudge
+from answergate.metrics.retrieval import retrieval_scores
+from answergate.models import CaseResult, Context, GoldenCase, RunResult
+from answergate.report import markdown
+from answergate.runner import aggregate, run
+from answergate.targets import make_target
+from answergate.targets.parse import to_response
 
 SRC = str(Path(__file__).parents[1] / "src")
 
 
 def write_cfg(project: Path, extra: str = "", callable_: str = "fake_rag:answer") -> None:
-    (project / "ragcheck.yaml").write_text(
+    (project / "answergate.yaml").write_text(
         f"target: {{type: python, callable: '{callable_}'}}\njudge: {{provider: none}}\n{extra}",
         encoding="utf-8",
     )
@@ -41,7 +41,7 @@ def test_hung_sync_pipeline_does_not_block_exit(project: Path) -> None:
     write_cfg(project, "target_timeout_s: 0.5\nretries: 0\n", "hang:answer")
     start = time.monotonic()
     proc = subprocess.run(
-        [sys.executable, "-c", "from ragcheck.cli import app; app()", "run", "--no-judge"],
+        [sys.executable, "-c", "from answergate.cli import app; app()", "run", "--no-judge"],
         cwd=project,
         capture_output=True,
         text=True,
@@ -63,7 +63,7 @@ def test_partial_and_callable_object_returning_coroutines(project: Path) -> None
     )
     for spec in ("odd_async:answer", "odd_async:bot"):
         write_cfg(project, callable_=spec)
-        cfg = load_config(project / "ragcheck.yaml")
+        cfg = load_config(project / "answergate.yaml")
         r = asyncio.run(run(cfg, load_golden(project / "golden.jsonl"), make_target(cfg), None))
         assert r.errors == 0, (spec, r.results[0].error)
 
@@ -122,12 +122,12 @@ class RecordingJudge:
 
 def judged_run(project: Path, answer: str, **cfg: Any) -> RecordingJudge:
     write_cfg(project)
-    c = load_config(project / "ragcheck.yaml")
+    c = load_config(project / "answergate.yaml")
     c.judge.provider = "ollama"
     for k, v in cfg.items():
         setattr(c, k, v)
     rec = RecordingJudge()
-    judge = CachedJudge(rec, project / ".ragcheck" / "cache", concurrency=c.judge.concurrency)
+    judge = CachedJudge(rec, project / ".answergate" / "cache", concurrency=c.judge.concurrency)
 
     class T:
         async def ask(self, q: str) -> Any:
@@ -160,8 +160,8 @@ def test_judge_calls_are_throttled_separately(project: Path) -> None:
 
 
 def test_cache_key_includes_judge_endpoint(tmp_path: Path) -> None:
-    from ragcheck.config import JudgeConfig
-    from ragcheck.judges import cache_identity
+    from answergate.config import JudgeConfig
+    from answergate.judges import cache_identity
 
     a = cache_identity(JudgeConfig(provider="openai", model="m", base_url="http://a"))
     b = cache_identity(JudgeConfig(provider="openai", model="m", base_url="http://b"))
@@ -182,7 +182,7 @@ def test_cache_key_includes_judge_endpoint(tmp_path: Path) -> None:
 def test_typo_in_metric_names_is_rejected(project: Path, extra: str) -> None:
     write_cfg(project, extra)
     with pytest.raises(ConfigError, match="Unknown metric"):
-        load_config(project / "ragcheck.yaml")
+        load_config(project / "answergate.yaml")
 
 
 # ── Output formats ───────────────────────────────────────────────────
@@ -201,7 +201,7 @@ def test_markdown_table_survives_pipes_and_backticks() -> None:
 
 
 def test_unicode_questions_and_answers_round_trip(project: Path) -> None:
-    from ragcheck.report import html
+    from answergate.report import html
 
     (project / "golden.jsonl").write_text(
         json.dumps(
@@ -215,7 +215,7 @@ def test_unicode_questions_and_answers_round_trip(project: Path) -> None:
         encoding="utf-8",
     )
     write_cfg(project, callable_="uni:answer")
-    cfg = load_config(project / "ragcheck.yaml")
+    cfg = load_config(project / "answergate.yaml")
     r = asyncio.run(run(cfg, load_golden(project / "golden.jsonl"), make_target(cfg), None))
     assert r.errors == 0 and r.metrics["hit_rate"] == 1.0
     assert "ರಿಫಂಡ್" in html(r, evaluate(r, None, Thresholds()), None)
@@ -224,7 +224,7 @@ def test_unicode_questions_and_answers_round_trip(project: Path) -> None:
 def test_locked_cache_is_not_fatal(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sqlite3
 
-    from ragcheck.judges.cache import JudgeCache
+    from answergate.judges.cache import JudgeCache
 
     class Locked:
         def execute(self, *a: Any) -> Any:

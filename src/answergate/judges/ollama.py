@@ -6,8 +6,8 @@ from typing import Any
 
 import httpx
 
-from ragcheck.config import JudgeConfig
-from ragcheck.judges import FatalJudgeError, JudgeError, Schema
+from answergate.config import JudgeConfig
+from answergate.judges import FatalJudgeError, JudgeError, Schema
 
 
 class OllamaJudge:

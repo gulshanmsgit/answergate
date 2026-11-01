@@ -12,14 +12,14 @@ import pytest
 from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
-from ragcheck.baseline import evaluate
-from ragcheck.cli import app
-from ragcheck.config import Config, ConfigError, Thresholds
-from ragcheck.judges import CachedJudge
-from ragcheck.models import GoldenCase, TargetResponse
-from ragcheck.report import html
-from ragcheck.runner import Checkpoint, run
-from ragcheck.selection import select, shard_of
+from answergate.baseline import evaluate
+from answergate.cli import app
+from answergate.config import Config, ConfigError, Thresholds
+from answergate.judges import CachedJudge
+from answergate.models import GoldenCase, TargetResponse
+from answergate.report import html
+from answergate.runner import Checkpoint, run
+from answergate.selection import select, shard_of
 
 cli = CliRunner()
 
@@ -143,7 +143,7 @@ def test_resume_ignores_a_checkpoint_from_other_settings(tmp_path: Path) -> None
 
 def test_shards_then_merge_gives_one_verdict(project: Path) -> None:
     assert cli.invoke(app, ["run", "--save-baseline"]).exit_code == 0
-    runs = project / ".ragcheck" / "runs"
+    runs = project / ".answergate" / "runs"
     for i in (1, 2):
         r = cli.invoke(app, ["run", "--shard", f"{i}/2"])
         assert r.exit_code == 0, r.output

@@ -11,13 +11,13 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ragcheck import guardrails as g
-from ragcheck.config import Config
-from ragcheck.judges import CachedJudge, FatalJudgeError, JudgeError
-from ragcheck.metrics import judged
-from ragcheck.metrics.retrieval import retrieval_scores
-from ragcheck.models import CaseResult, GoldenCase, RunResult
-from ragcheck.targets import Target
+from answergate import guardrails as g
+from answergate.config import Config
+from answergate.judges import CachedJudge, FatalJudgeError, JudgeError
+from answergate.metrics import judged
+from answergate.metrics.retrieval import retrieval_scores
+from answergate.models import CaseResult, GoldenCase, RunResult
+from answergate.targets import Target
 
 Progress = Callable[[CaseResult], None]
 

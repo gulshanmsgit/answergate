@@ -1,12 +1,12 @@
-"""Claude as the judge, through the official Anthropic SDK (`pip install ragcheck-ci[anthropic]`)."""
+"""Claude as the judge, through the official Anthropic SDK (`pip install answergate[anthropic]`)."""
 
 from __future__ import annotations
 
 import os
 from typing import Any
 
-from ragcheck.config import JudgeConfig
-from ragcheck.judges import FatalJudgeError, JudgeError, Schema, retry_after_s
+from answergate.config import JudgeConfig
+from answergate.judges import FatalJudgeError, JudgeError, Schema, retry_after_s
 
 
 class AnthropicJudge:
@@ -15,7 +15,7 @@ class AnthropicJudge:
             import anthropic
         except ImportError as e:
             raise FatalJudgeError(
-                "The anthropic judge needs the Anthropic SDK: pip install 'ragcheck-ci[anthropic]'"
+                "The anthropic judge needs the Anthropic SDK: pip install 'answergate[anthropic]'"
             ) from e
         self._sdk = anthropic
         self.model = model
@@ -63,7 +63,7 @@ class AnthropicJudge:
             # The request shape or model settings are wrong: every call would fail the same way
             raise FatalJudgeError(f"Anthropic rejected the request: {e.message}") from e
         except sdk.RateLimitError as e:
-            # The SDK already retried; let RAGCheck's own backoff take a turn, honouring Retry-After
+            # The SDK already retried; let AnswerGate's own backoff take a turn, honouring Retry-After
             raise JudgeError(
                 f"Rate limited: {e.message}", retry_after=retry_after_s(e.response.headers)
             ) from e

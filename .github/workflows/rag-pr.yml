@@ -1,6 +1,6 @@
-# Runs RAGCheck on every pull request that touches the FastAPI-docs RAG, comments the result on the
+# Runs AnswerGate on every pull request that touches the FastAPI-docs RAG, comments the result on the
 # PR and fails the check on a regression. It compares against the committed baseline
-# (examples/fastapi_qdrant/.ragcheck/baseline.json), so only the PR's version is run.
+# (examples/fastapi_qdrant/.answergate/baseline.json), so only the PR's version is run.
 #
 # Runs on a self-hosted runner with Ollama (granite4.1:8b), so documents and answers stay on that machine.
 # A self-hosted runner executes the PR's code: this job only runs for branches of this repository, never forks.
@@ -15,11 +15,11 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ragcheck-${{ github.event.pull_request.number }}
+  group: answergate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  ragcheck:
+  answergate:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted]
     timeout-minutes: 240

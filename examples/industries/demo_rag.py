@@ -1,10 +1,10 @@
-"""Six small RAG pipelines, one per industry, for trying RAGCheck end to end.
+"""Six small RAG pipelines, one per industry, for trying AnswerGate end to end.
 
 Each one is a real retrieve-then-answer loop over the Markdown corpus in its folder: BM25 retrieval over
 document sections, then an extractive answer built from the best-matching sentences. It needs no model,
 no GPU and no network, so the whole demo runs in seconds on any laptop.
 
-Set DEMO_FAULT to switch in one realistic regression and watch RAGCheck catch it:
+Set DEMO_FAULT to switch in one realistic regression and watch AnswerGate catch it:
 
   stale_index   an ingest job failed, so one document is missing from the index
   top_k_1       someone changed top_k from 3 to 1

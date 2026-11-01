@@ -6,8 +6,8 @@ import hashlib
 import random
 import re
 
-from ragcheck.config import ConfigError
-from ragcheck.models import GoldenCase
+from answergate.config import ConfigError
+from answergate.models import GoldenCase
 
 
 def parse_shard(spec: str) -> tuple[int, int]:

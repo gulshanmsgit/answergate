@@ -4,9 +4,9 @@ from typing import Any
 
 import httpx
 
-from ragcheck.config import HttpTargetConfig, expand_env
-from ragcheck.models import TargetResponse
-from ragcheck.targets.parse import to_response
+from answergate.config import HttpTargetConfig, expand_env
+from answergate.models import TargetResponse
+from answergate.targets.parse import to_response
 
 
 def _fill(value: Any, question: str) -> Any:

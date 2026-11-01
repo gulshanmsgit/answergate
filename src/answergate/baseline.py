@@ -7,8 +7,8 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ragcheck.config import Thresholds
-from ragcheck.models import RunResult
+from answergate.config import Thresholds
+from answergate.models import RunResult
 
 # A single question counts as regressed when one of its scores falls by at least this much
 CASE_DROP = 0.25

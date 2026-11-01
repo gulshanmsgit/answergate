@@ -1,11 +1,11 @@
-"""Targets: how RAGCheck calls the pipeline under test."""
+"""Targets: how AnswerGate calls the pipeline under test."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from ragcheck.config import Config, HttpTargetConfig
-from ragcheck.models import TargetResponse
+from answergate.config import Config, HttpTargetConfig
+from answergate.models import TargetResponse
 
 
 class Target(Protocol):
@@ -16,9 +16,9 @@ class Target(Protocol):
 
 def make_target(cfg: Config) -> Target:
     if isinstance(cfg.target, HttpTargetConfig):
-        from ragcheck.targets.http import HttpTarget
+        from answergate.targets.http import HttpTarget
 
         return HttpTarget(cfg.target)
-    from ragcheck.targets.python import PythonTarget
+    from answergate.targets.python import PythonTarget
 
     return PythonTarget(cfg.target, cfg.root)

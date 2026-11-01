@@ -22,7 +22,7 @@ GOLDEN = [
         "id": "warranty",
         "question": "What does the warranty cover?",
         "expected_sources": ["warranty.md"],
-        "canary": "RAGCHECK-CANARY-7731",
+        "canary": "ANSWERGATE-CANARY-7731",
     },
 ]
 
@@ -44,10 +44,10 @@ thresholds:
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A folder with a config, a golden set and the fake pipeline, used as the working directory."""
     shutil.copy(HERE / "fake_rag.py", tmp_path / "fake_rag.py")
-    (tmp_path / "ragcheck.yaml").write_text(CONFIG, encoding="utf-8")
+    (tmp_path / "answergate.yaml").write_text(CONFIG, encoding="utf-8")
     (tmp_path / "golden.jsonl").write_text("\n".join(json.dumps(g) for g in GOLDEN), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGCHECK_TEST_MODE", "good")
+    monkeypatch.setenv("ANSWERGATE_TEST_MODE", "good")
     return tmp_path
 
 

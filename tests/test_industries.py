@@ -18,9 +18,9 @@ import build_golden  # noqa: E402
 import run_demo  # noqa: E402
 from demo_rag import FAULTS, INDUSTRIES, answer, load_corpus, understand  # noqa: E402
 
-from ragcheck.baseline import evaluate  # noqa: E402
-from ragcheck.config import Thresholds, load_golden  # noqa: E402
-from ragcheck.models import CaseResult, GoldenCase, RunResult  # noqa: E402
+from answergate.baseline import evaluate  # noqa: E402
+from answergate.config import Thresholds, load_golden  # noqa: E402
+from answergate.models import CaseResult, GoldenCase, RunResult  # noqa: E402
 
 # The metric or guardrail each fault must trip
 TRIPS = {

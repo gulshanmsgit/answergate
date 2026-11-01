@@ -11,15 +11,15 @@ import pytest
 from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
-from ragcheck.baseline import confidence_interval, evaluate
-from ragcheck.calibrate import CUTOFFS, calibrate, cohen_kappa, load_labels
-from ragcheck.cli import app
-from ragcheck.config import Config, Thresholds
-from ragcheck.judges import CachedJudge
-from ragcheck.metrics import judged
-from ragcheck.metrics.judged import evidence_found
-from ragcheck.models import CaseResult, Context, GoldenCase, RunResult
-from ragcheck.runner import aggregate
+from answergate.baseline import confidence_interval, evaluate
+from answergate.calibrate import CUTOFFS, calibrate, cohen_kappa, load_labels
+from answergate.cli import app
+from answergate.config import Config, Thresholds
+from answergate.judges import CachedJudge
+from answergate.metrics import judged
+from answergate.metrics.judged import evidence_found
+from answergate.models import CaseResult, Context, GoldenCase, RunResult
+from answergate.runner import aggregate
 
 CTX = [
     Context(

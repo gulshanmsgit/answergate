@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ragcheck.models import Context, TargetResponse
+from answergate.models import Context, TargetResponse
 
 
 class ResponseShapeError(Exception):

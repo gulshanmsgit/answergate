@@ -3,7 +3,7 @@ target:
   type: python
   callable: demo_rag:healthcare
 golden_set: healthcare/golden.jsonl
-workdir: .ragcheck/healthcare
+workdir: .answergate/healthcare
 judge:
   provider: none        # run_demo.py --judge ollama|anthropic|openai switches a judge on
 k: 3

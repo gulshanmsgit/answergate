@@ -11,8 +11,8 @@ from typing import Any, Protocol
 
 import httpx
 
-from ragcheck.config import Config, JudgeConfig
-from ragcheck.judges.cache import JudgeCache
+from answergate.config import Config, JudgeConfig
+from answergate.judges.cache import JudgeCache
 
 # A JSON schema for the judge's reply; each provider enforces it in its own way
 Schema = dict[str, Any]
@@ -188,15 +188,15 @@ def make_judge(cfg: Config) -> CachedJudge | None:
     model = resolve_model(j)
     inner: Judge
     if j.provider == "ollama":
-        from ragcheck.judges.ollama import OllamaJudge
+        from answergate.judges.ollama import OllamaJudge
 
         inner = OllamaJudge(j, model)
     elif j.provider == "openai":
-        from ragcheck.judges.openai import OpenAIJudge
+        from answergate.judges.openai import OpenAIJudge
 
         inner = OpenAIJudge(j, model)
     else:
-        from ragcheck.judges.anthropic import AnthropicJudge
+        from answergate.judges.anthropic import AnthropicJudge
 
         inner = AnthropicJudge(j, model)
     return CachedJudge(

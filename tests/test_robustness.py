@@ -1,6 +1,6 @@
 """Adversarial cases: hostile pipelines, flaky judges, bad files and unfair comparisons.
 
-Each test describes a way a real user's setup can misbehave; RAGCheck must either handle it
+Each test describes a way a real user's setup can misbehave; AnswerGate must either handle it
 or fail with a clear message, never crash the whole run or give a wrong verdict.
 """
 
@@ -16,13 +16,13 @@ import pytest
 from conftest import quote_from_prompt
 from typer.testing import CliRunner
 
-from ragcheck.baseline import evaluate
-from ragcheck.cli import app
-from ragcheck.config import ConfigError, Thresholds, load_config, load_golden
-from ragcheck.guardrails import find_pii
-from ragcheck.judges import CachedJudge
-from ragcheck.models import CaseResult, GoldenCase, RunResult, TargetResponse
-from ragcheck.runner import aggregate, run
+from answergate.baseline import evaluate
+from answergate.cli import app
+from answergate.config import ConfigError, Thresholds, load_config, load_golden
+from answergate.guardrails import find_pii
+from answergate.judges import CachedJudge
+from answergate.models import CaseResult, GoldenCase, RunResult, TargetResponse
+from answergate.runner import aggregate, run
 
 cli = CliRunner()
 
@@ -35,7 +35,7 @@ class FnTarget:
         out = self.fn(question)
         if asyncio.iscoroutine(out):
             out = await out
-        from ragcheck.targets.parse import to_response
+        from answergate.targets.parse import to_response
 
         return to_response(out)
 
@@ -59,10 +59,10 @@ class FnJudge:
 
 
 def go(project: Path, target: Any, judge_fn: Any = None, **cfg_overrides: Any) -> RunResult:
-    cfg = load_config(project / "ragcheck.yaml")
+    cfg = load_config(project / "answergate.yaml")
     for k, v in cfg_overrides.items():
         setattr(cfg, k, v)
-    judge = CachedJudge(FnJudge(judge_fn), project / ".ragcheck" / "cache") if judge_fn else None
+    judge = CachedJudge(FnJudge(judge_fn), project / ".answergate" / "cache") if judge_fn else None
     return asyncio.run(run(cfg, load_golden(project / "golden.jsonl"), target, judge))
 
 
@@ -170,9 +170,9 @@ def test_judge_odd_score_values(project: Path, score: Any) -> None:
 
 
 def test_corrupted_cache_file_is_moved_aside(project: Path) -> None:
-    from ragcheck.judges.cache import FILENAME, JudgeCache
+    from answergate.judges.cache import FILENAME, JudgeCache
 
-    cache_dir = project / ".ragcheck" / "cache"
+    cache_dir = project / ".answergate" / "cache"
     cache_dir.mkdir(parents=True)
     (cache_dir / FILENAME).write_bytes(b"not a database " * 200)
     r = go(project, FnTarget(lambda q: GOOD), ok_judge)
@@ -200,24 +200,24 @@ def test_golden_set_as_json_array(project: Path) -> None:
 
 
 def test_invalid_k_is_rejected(project: Path) -> None:
-    (project / "ragcheck.yaml").write_text("target: {type: python, callable: fake_rag:answer}\nk: 0\n")
+    (project / "answergate.yaml").write_text("target: {type: python, callable: fake_rag:answer}\nk: 0\n")
     with pytest.raises(ConfigError):
-        load_config(project / "ragcheck.yaml")
+        load_config(project / "answergate.yaml")
 
 
 def test_corrupt_baseline_gives_clean_error(project: Path) -> None:
-    (project / ".ragcheck").mkdir()
-    (project / ".ragcheck" / "baseline.json").write_text("{}", encoding="utf-8")
+    (project / ".answergate").mkdir()
+    (project / ".answergate" / "baseline.json").write_text("{}", encoding="utf-8")
     r = cli.invoke(app, ["run"])
     assert r.exit_code == 2 and "baseline" in r.output.lower()
 
 
 def test_unexpected_crash_exits_2_not_1(project: Path) -> None:
-    # Exit code 1 means "quality dropped"; a RAGCheck bug must never look like that in CI
+    # Exit code 1 means "quality dropped"; a AnswerGate bug must never look like that in CI
     # A fresh module name: fake_rag is already imported by earlier tests in this process
     (project / "broken_mod.py").write_text("raise SystemError('import-time bug')\n", encoding="utf-8")
-    cfg = (project / "ragcheck.yaml").read_text(encoding="utf-8").replace("fake_rag:", "broken_mod:")
-    (project / "ragcheck.yaml").write_text(cfg, encoding="utf-8")
+    cfg = (project / "answergate.yaml").read_text(encoding="utf-8").replace("fake_rag:", "broken_mod:")
+    (project / "answergate.yaml").write_text(cfg, encoding="utf-8")
     r = cli.invoke(app, ["run"])
     assert r.exit_code == 2
 
@@ -254,16 +254,16 @@ def test_judge_skipped_this_run_is_flagged() -> None:
 
 
 def test_save_baseline_refuses_a_failing_first_run(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAGCHECK_TEST_MODE", "unsafe")
+    monkeypatch.setenv("ANSWERGATE_TEST_MODE", "unsafe")
     cli.invoke(app, ["run", "--save-baseline"])
-    assert not (project / ".ragcheck" / "baseline.json").exists()
+    assert not (project / ".answergate" / "baseline.json").exists()
 
 
 # ── Report and guardrails ─────────────────────────────────────────────
 
 
 def test_report_escapes_html_in_answers(project: Path) -> None:
-    from ragcheck.report import html
+    from answergate.report import html
 
     evil = "<script>alert(1)</script>"
     r = go(project, FnTarget(lambda q: {"answer": evil, "contexts": [{"id": evil, "text": evil}]}))
@@ -286,11 +286,11 @@ def test_pii_no_false_positives_on_ordinary_numbers(text: str) -> None:
 
 
 def test_internal_bug_exits_2(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import ragcheck.cli as cli_mod
+    import answergate.cli as cli_mod
 
     def bug(*a: Any, **k: Any) -> Any:
         raise RuntimeError("internal bug")
 
     monkeypatch.setattr(cli_mod, "save_run", bug)
     r = cli.invoke(app, ["run"])
-    assert r.exit_code == 2 and "RAGCheck crashed" in r.output
+    assert r.exit_code == 2 and "AnswerGate crashed" in r.output

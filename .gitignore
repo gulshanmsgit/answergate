@@ -10,18 +10,18 @@ build/
 .env
 .claude/
 
-# Local run history and judge cache (commit .ragcheck/baseline.json only)
-.ragcheck/*
-!.ragcheck/baseline.json
-ragcheck-report.html
-ragcheck-summary.md
+# Local run history and judge cache (commit .answergate/baseline.json only)
+.answergate/*
+!.answergate/baseline.json
+answergate-report.html
+answergate-summary.md
 
 # Industry demo output
 examples/industries/out/
-examples/industries/.ragcheck/
+examples/industries/.answergate/
 
 # fastapi_qdrant demo: fetched docs, local Qdrant index and experiment output
 examples/fastapi_qdrant/data/
 examples/fastapi_qdrant/out/
-examples/fastapi_qdrant/.ragcheck/*
-!examples/fastapi_qdrant/.ragcheck/baseline.json
+examples/fastapi_qdrant/.answergate/*
+!examples/fastapi_qdrant/.answergate/baseline.json

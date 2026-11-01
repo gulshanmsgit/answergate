@@ -3,9 +3,9 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ragcheck-ci"
-version = "0.1.0"
-description = "Regression tests for RAG pipelines: catch quality drops in CI before your users do."
+name = "answergate"
+version = "0.2.0"
+description = "Regression tests for AI assistants: fail the pull request when answers get worse."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -31,15 +31,15 @@ anthropic = ["anthropic>=1"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "types-PyYAML", "anthropic>=1"]
 
 [project.scripts]
-ragcheck = "ragcheck.cli:app"
+answergate = "answergate.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/gulshanmsgit/ragcheck"
-Repository = "https://github.com/gulshanmsgit/ragcheck"
-Issues = "https://github.com/gulshanmsgit/ragcheck/issues"
+Homepage = "https://github.com/gulshanmsgit/answergate"
+Repository = "https://github.com/gulshanmsgit/answergate"
+Issues = "https://github.com/gulshanmsgit/answergate/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ragcheck"]
+packages = ["src/answergate"]
 
 [tool.ruff]
 line-length = 110
@@ -53,7 +53,7 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]  # line length is left to ruff f
 [tool.mypy]
 python_version = "3.10"
 strict = true
-packages = ["ragcheck"]
+packages = ["answergate"]
 mypy_path = "src"
 
 [tool.pytest.ini_options]

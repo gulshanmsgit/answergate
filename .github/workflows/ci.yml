@@ -31,7 +31,7 @@ jobs:
       - run: pytest -q
 
   action:
-    # Smoke-test action.yml itself: it must install RAGCheck and run a suite with no LLM
+    # Smoke-test action.yml itself: it must install AnswerGate and run a suite with no LLM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
           cat > golden.jsonl <<'EOF'
           {"id": "refund", "question": "How long do I have to request a refund?", "expected_sources": ["refund-policy.md"]}
           EOF
-          cat > ragcheck.yaml <<'EOF'
+          cat > answergate.yaml <<'EOF'
           target: { type: python, callable: "fake_rag:answer" }
           judge: { provider: none }
           EOF

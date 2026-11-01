@@ -1,4 +1,4 @@
-"""The `ragcheck` command."""
+"""The `answergate` command."""
 
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ from typing import Annotated, Any, NoReturn, ParamSpec, TypeVar
 
 import typer
 
-from ragcheck import __version__
-from ragcheck.baseline import Verdict, evaluate, latest_run, load_run, save_baseline, save_run
-from ragcheck.config import Config, ConfigError, load_config, load_golden
-from ragcheck.judges import FatalJudgeError, JudgeError, make_judge
-from ragcheck.models import CaseResult, RunResult
-from ragcheck.report import label, write_reports
-from ragcheck.runner import build_run
-from ragcheck.runner import run as run_pipeline
-from ragcheck.selection import select
-from ragcheck.targets import make_target
+from answergate import __version__
+from answergate.baseline import Verdict, evaluate, latest_run, load_run, save_baseline, save_run
+from answergate.config import Config, ConfigError, load_config, load_golden
+from answergate.judges import FatalJudgeError, JudgeError, make_judge
+from answergate.models import CaseResult, RunResult
+from answergate.report import label, write_reports
+from answergate.runner import build_run
+from answergate.runner import run as run_pipeline
+from answergate.selection import select
+from answergate.targets import make_target
 
 app = typer.Typer(
     help="Regression tests for RAG pipelines: catch quality drops in CI before your users do.",
@@ -46,7 +46,7 @@ def _setup() -> None:
             reconfigure(encoding="utf-8", errors="replace")
 
 
-ConfigOpt = Annotated[Path, typer.Option("--config", "-c", help="Path to ragcheck.yaml")]
+ConfigOpt = Annotated[Path, typer.Option("--config", "-c", help="Path to answergate.yaml")]
 
 
 def _die(msg: str) -> NoReturn:
@@ -59,7 +59,7 @@ R = TypeVar("R")
 
 
 def _guard(fn: Callable[P, R]) -> Callable[P, R]:
-    """Turn an unexpected crash into exit code 2, so CI never mistakes a RAGCheck bug for a regression."""
+    """Turn an unexpected crash into exit code 2, so CI never mistakes a AnswerGate bug for a regression."""
 
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -69,11 +69,11 @@ def _guard(fn: Callable[P, R]) -> Callable[P, R]:
             # Exit codes, aborts and usage errors are the CLI framework's own control flow
             if type(e).__module__.startswith(("typer", "click")):
                 raise
-            typer.secho(f"RAGCheck crashed: {type(e).__name__}: {e}", fg=typer.colors.RED, err=True)
-            if os.environ.get("RAGCHECK_DEBUG"):
+            typer.secho(f"AnswerGate crashed: {type(e).__name__}: {e}", fg=typer.colors.RED, err=True)
+            if os.environ.get("ANSWERGATE_DEBUG"):
                 traceback.print_exc()
             else:
-                typer.echo("Set RAGCHECK_DEBUG=1 to see the traceback.", err=True)
+                typer.echo("Set ANSWERGATE_DEBUG=1 to see the traceback.", err=True)
             raise typer.Exit(EXIT_ERROR) from e
 
     return wrapper
@@ -86,7 +86,7 @@ def _read_run(path: Path, what: str) -> RunResult:
         reason = str(e).splitlines()[0] if str(e) else type(e).__name__
         _die(
             f"Cannot read the {what} at {path}: {reason}\n"
-            "Delete it, or set a new one with `ragcheck baseline`."
+            "Delete it, or set a new one with `answergate baseline`."
         )
 
 
@@ -138,10 +138,10 @@ def init(
     directory: Annotated[Path, typer.Argument(help="Where to create the files")] = Path("."),
     force: Annotated[bool, typer.Option(help="Overwrite existing files")] = False,
 ) -> None:
-    """Create a starter ragcheck.yaml, golden.jsonl and an injection test document."""
+    """Create a starter answergate.yaml, golden.jsonl and an injection test document."""
     directory.mkdir(parents=True, exist_ok=True)
     files = {
-        "ragcheck.yaml": "ragcheck.yaml",
+        "answergate.yaml": "answergate.yaml",
         "golden.jsonl": "golden.jsonl",
         "canary-doc.md": "canary-doc.md",
     }
@@ -150,24 +150,24 @@ def init(
         if out.exists() and not force:
             typer.echo(f"skip   {out} (exists)")
             continue
-        with resources.as_file(resources.files("ragcheck") / "templates" / src) as p:
+        with resources.as_file(resources.files("answergate") / "templates" / src) as p:
             shutil.copyfile(p, out)
         typer.echo(f"create {out}")
     typer.echo(
-        "\nNext: point target.url at your pipeline, write real questions in golden.jsonl, then run `ragcheck run`."
+        "\nNext: point target.url at your pipeline, write real questions in golden.jsonl, then run `answergate run`."
     )
 
 
 @app.command()
 @_guard
 def run(
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
     label_: Annotated[
         str, typer.Option("--label", "-l", help="A name for this run, e.g. a branch or commit")
     ] = "",
     baseline: Annotated[Path | None, typer.Option(help="Baseline run to compare with")] = None,
     html: Annotated[Path | None, typer.Option(help="Write the HTML report here")] = Path(
-        "ragcheck-report.html"
+        "answergate-report.html"
     ),
     md: Annotated[Path | None, typer.Option(help="Write a Markdown summary here (for PR comments)")] = None,
     save_as_baseline: Annotated[
@@ -176,7 +176,7 @@ def run(
     no_judge: Annotated[bool, typer.Option("--no-judge", help="Skip LLM-judged metrics")] = False,
     shard: Annotated[
         str | None,
-        typer.Option(help="Run one part of the golden set, e.g. 2/4; combine with `ragcheck merge`"),
+        typer.Option(help="Run one part of the golden set, e.g. 2/4; combine with `answergate merge`"),
     ] = None,
     sample: Annotated[int | None, typer.Option(help="Ask a random subset of this many questions")] = None,
     seed: Annotated[int, typer.Option(help="Seed for --sample (same seed, same questions)")] = 0,
@@ -239,7 +239,7 @@ def run(
 
     of = f" of {len(all_cases)}" if subset else ""
     typer.echo(
-        f"RAGCheck {__version__} · {len(cases)}{of} questions · judge: {judge.name if judge else 'none'}"
+        f"AnswerGate {__version__} · {len(cases)}{of} questions · judge: {judge.name if judge else 'none'}"
     )
     try:
         result = asyncio.run(go())
@@ -248,7 +248,7 @@ def run(
         _die(f"Judge setup problem: {e}")
     except KeyboardInterrupt:
         typer.echo("")
-        _die(f"Interrupted after {done} questions. They are saved: continue with `ragcheck run --resume`.")
+        _die(f"Interrupted after {done} questions. They are saved: continue with `answergate run --resume`.")
     typer.echo("")
     checkpoint.unlink(missing_ok=True)  # the full run is saved below
 
@@ -273,7 +273,7 @@ def run(
         else:
             typer.secho(
                 "  not saved as baseline, because the run failed. "
-                "To accept it anyway, run `ragcheck baseline`.",
+                "To accept it anyway, run `answergate baseline`.",
                 fg=typer.colors.YELLOW,
             )
 
@@ -285,7 +285,7 @@ def run(
 def compare(
     current: Annotated[Path | None, typer.Argument(help="Run file (default: the latest run)")] = None,
     baseline: Annotated[Path | None, typer.Option(help="Baseline run file")] = None,
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
     html: Annotated[Path | None, typer.Option(help="Write the HTML report here")] = None,
     md: Annotated[Path | None, typer.Option(help="Write a Markdown summary here")] = None,
 ) -> None:
@@ -294,10 +294,10 @@ def compare(
     workdir = cfg.path(cfg.workdir)
     cur_path = current or latest_run(workdir)
     if cur_path is None:
-        _die("No runs yet. Run `ragcheck run` first.")
+        _die("No runs yet. Run `answergate run` first.")
     base_path = baseline or _baseline_path(cfg)
     if not base_path.exists():
-        _die(f"Baseline not found: {base_path}. Save one with `ragcheck baseline`.")
+        _die(f"Baseline not found: {base_path}. Save one with `answergate baseline`.")
     cur, base = _read_run(cur_path, "run"), _read_run(base_path, "baseline")
     verdict = evaluate(cur, base, cfg.thresholds)
     _print_verdict(cur, verdict)
@@ -309,10 +309,10 @@ def compare(
 @_guard
 def merge(
     runs: Annotated[list[Path], typer.Argument(help="Run files from each shard")],
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
     baseline: Annotated[Path | None, typer.Option(help="Baseline run file")] = None,
     html: Annotated[Path | None, typer.Option(help="Write the HTML report here")] = Path(
-        "ragcheck-report.html"
+        "answergate-report.html"
     ),
     md: Annotated[Path | None, typer.Option(help="Write a Markdown summary here")] = None,
     save_as_baseline: Annotated[
@@ -365,15 +365,15 @@ def merge(
 @app.command()
 @_guard
 def calibrate(
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
     labels: Annotated[
         Path | None, typer.Option(help="Your own labelled cases (JSONL). Default: the built-in set")
     ] = None,
     min_accuracy: Annotated[float, typer.Option(help="Fail if any metric's accuracy is below this")] = 0.85,
 ) -> None:
     """Check the judge against labelled cases: how often does it agree with the right answer?"""
-    from ragcheck.calibrate import calibrate as run_calibration
-    from ragcheck.calibrate import load_labels
+    from answergate.calibrate import calibrate as run_calibration
+    from answergate.calibrate import load_labels
 
     cfg = _load(config)
     try:
@@ -441,11 +441,11 @@ def generate(
         int, typer.Option(min=0, help="Off-topic questions to add, which must be declined")
     ] = 3,
     seed: Annotated[int, typer.Option(help="Same seed and documents, same questions")] = 7,
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
     force: Annotated[bool, typer.Option(help="Overwrite the output file")] = False,
 ) -> None:
     """Write a golden set from your documents. Each question's expected source is the passage it was written from."""
-    from ragcheck.generate import generate_llm, generate_structure, load_sections, with_refusals
+    from answergate.generate import generate_llm, generate_structure, load_sections, with_refusals
 
     if mode not in ("structure", "llm"):
         _die(f"--mode must be structure or llm, not {mode!r}")
@@ -503,13 +503,13 @@ def generate(
 @_guard
 def set_baseline(
     run_file: Annotated[Path | None, typer.Argument(help="Run file (default: the latest run)")] = None,
-    config: ConfigOpt = Path("ragcheck.yaml"),
+    config: ConfigOpt = Path("answergate.yaml"),
 ) -> None:
     """Make a saved run the baseline that future runs are compared with."""
     cfg = _load(config)
     src = run_file or latest_run(cfg.path(cfg.workdir))
     if src is None:
-        _die("No runs yet. Run `ragcheck run` first.")
+        _die("No runs yet. Run `answergate run` first.")
     save_baseline(_read_run(src, "run"), _baseline_path(cfg))
     typer.echo(f"Baseline set to {src.name} → {_baseline_path(cfg)}")
 

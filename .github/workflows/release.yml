@@ -1,6 +1,6 @@
 # Publishes to PyPI when a GitHub Release is published, using PyPI trusted publishing (no token stored here).
-# One-time setup on pypi.org: add a "pending publisher" for project ragcheck-ci,
-# owner gulshanmsgit, repository ragcheck, workflow release.yml, environment pypi.
+# One-time setup on pypi.org: add a "pending publisher" for project answergate,
+# owner gulshanmsgit, repository answergate, workflow release.yml, environment pypi.
 name: Release
 
 on:

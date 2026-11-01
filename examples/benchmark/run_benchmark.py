@@ -1,5 +1,5 @@
-"""How fast is RAGCheck itself? Runs N questions through the real runner and scoring, with an instant fake
-pipeline and an instant fake judge, so the time measured is RAGCheck's own overhead.
+"""How fast is AnswerGate itself? Runs N questions through the real runner and scoring, with an instant fake
+pipeline and an instant fake judge, so the time measured is AnswerGate's own overhead.
 
     python examples/benchmark/run_benchmark.py            # 50,000 questions
     python examples/benchmark/run_benchmark.py --n 5000
@@ -18,10 +18,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ragcheck.config import Config, JudgeConfig
-from ragcheck.judges import CachedJudge
-from ragcheck.models import Context, GoldenCase, TargetResponse
-from ragcheck.runner import run
+from answergate.config import Config, JudgeConfig
+from answergate.judges import CachedJudge
+from answergate.models import Context, GoldenCase, TargetResponse
+from answergate.runner import run
 
 
 class InstantTarget:
