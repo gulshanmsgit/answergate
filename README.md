@@ -1,25 +1,33 @@
 # RAGCheck
 
+[![CI](https://github.com/gulshanmsgit/ragcheck/actions/workflows/ci.yml/badge.svg)](https://github.com/gulshanmsgit/ragcheck/actions/workflows/ci.yml)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 **Regression tests for RAG pipelines.** Change a chunk size, an embedding model, a prompt or an LLM version, and RAGCheck tells you in the pull request whether answers got worse, and on which questions.
 
+A real run on the [FastAPI-docs assistant](examples/fastapi_qdrant): one pull request changed `CHUNK_SIZE` from 1000 to 250.
+
 ```
-$ ragcheck run --label "chunk-256"
-RAGCheck 0.1.0 · 40 questions · judge: ollama/qwen2.5:7b
+$ ragcheck run -c ragcheck.yaml -l chunk-250
+RAGCheck 0.1.0 · 44 questions · judge: ollama/granite4.1:8b
 
-  Hit rate             0.775  -0.150
-  MRR                  0.612  -0.121
-  Faithfulness         0.861  -0.064
-  Answer relevance     0.912  +0.008
-  No PII leaked        1.000
-  Resists injection    1.000
+  Context precision    0.725  +0.100  [+0.025, +0.175]
+  Correctness          0.856  -0.069  [-0.131, -0.019]
+  Faithfulness         0.913  -0.022  [-0.110, +0.069]
+  Hit rate             0.975  +0.000  [-0.075, +0.075]
+  Answer relevance     0.900  -0.087  [-0.169, -0.025]
+  No PII leaked        1.000  +0.000
+  Refuses off-topic    1.000  +0.000
 
-  6 question(s) regressed:
-    - refund-window: Hit rate 1.00 → 0.00
-    ...
+  19 question(s) regressed
 
 FAILED
-  ✕ hit_rate dropped 0.150 (from 0.925 to 0.775); allowed 0.050
+  ✕ correctness dropped 0.069 on the 40 questions in both runs; allowed 0.050 (95% CI -0.131 to -0.019)
+  ✕ relevance dropped 0.087 on the 40 questions in both runs; allowed 0.050 (95% CI -0.169 to -0.025)
 ```
+
+Retrieval looked fine: the right page was still found 97.5% of the time. But 250-character chunks cut facts off mid-page, so the model started answering "I don't know" to questions it used to get right. A retrieval-only dashboard would have approved this change.
 
 ## Why
 
@@ -34,9 +42,20 @@ Teams test RAG by asking a few questions by hand. Quality then drops quietly aft
   - off-topic questions the pipeline should decline.
 
 ### How it compares
-[RAGAS](https://github.com/explodinggradients/ragas) and [DeepEval](https://github.com/confident-ai/deepeval) are rich metric libraries, and [promptfoo](https://github.com/promptfoo/promptfoo) tests prompts across models. RAGCheck is deliberately narrower: a zero-code CLI and GitHub Action that treats your pipeline as a black box, stores baselines, and blocks the merge when quality regresses. Use it alongside those libraries if you need more metrics.
+[RAGAS](https://github.com/explodinggradients/ragas) and [DeepEval](https://github.com/confident-ai/deepeval) are rich metric libraries, and [promptfoo](https://github.com/promptfoo/promptfoo) tests prompts across models. RAGCheck is deliberately narrower: a zero-code CLI and GitHub Action that treats your pipeline as a black box, stores baselines, and fails the pull request check when quality regresses. Use it alongside those libraries if you need more metrics.
 
 ## See it catch real breakages
+
+### A real pipeline
+
+[`examples/fastapi_qdrant`](examples/fastapi_qdrant) is a real RAG app:
+- FastAPI over the FastAPI docs (95 pages);
+- bge-small embeddings, Qdrant and `granite4.1:8b` via Ollama;
+- 44 hand-written questions, with reference answers checked against the docs.
+
+The run above comes from there. [`rag-pr.yml`](.github/workflows/rag-pr.yml) runs it on every pull request that touches the demo. Running RAGCheck on real documents also exposed three bugs in RAGCheck's own checks; [the write-up](examples/fastapi_qdrant/README.md) has those and the full results.
+
+### Six industries, seven injected faults
 
 [`examples/industries`](examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Together they come with **1,070 golden questions** covering these edge cases:
 - paraphrases, typos, keyword queries and long rambling questions;
@@ -57,7 +76,7 @@ The 6 not caught are hallucinations, which only a judge can see; add `--judge ol
 ## Quickstart
 
 ```bash
-pip install ragcheck-ci
+pip install git+https://github.com/gulshanmsgit/ragcheck   # PyPI release (ragcheck-ci) coming soon
 ragcheck init            # writes ragcheck.yaml, golden.jsonl and canary-doc.md
 ragcheck run --save-baseline
 # ...change something in your pipeline...
@@ -111,7 +130,7 @@ thresholds:
 
 | Provider | Setup | Notes |
 |---|---|---|
-| `ollama` (default) | `ollama pull qwen2.5:7b`, then `ollama serve` | Local; nothing leaves your machine |
+| `ollama` (default) | `ollama pull qwen2.5:7b`, then `ollama serve` | Local; nothing leaves your machine. `granite4.1:8b` scored 32/32 on `ragcheck calibrate` and was the fastest of three local models tried |
 | `anthropic` | `pip install 'ragcheck-ci[anthropic]'`, plus `ANTHROPIC_API_KEY` or `ant auth login` | Official SDK, schema-enforced JSON. Default model `claude-opus-5-5`; set `judge.model: claude-haiku-5-5` and `judge.effort: low` for a cheaper judge |
 | `openai` | `OPENAI_API_KEY` (or `api_key_env`) and `judge.model` | Any OpenAI-compatible endpoint via `base_url` (vLLM, LM Studio, OpenRouter, Azure) |
 | `none` | – | Retrieval metrics and pattern-based guardrails only |
@@ -161,15 +180,43 @@ Questions run on a fixed worker pool, and judge results go into one SQLite cache
 
 ## In CI (GitHub Actions)
 
-Commit `.ragcheck/baseline.json` from your main branch. Then, on every pull request:
+Commit `.ragcheck/baseline.json` from your main branch. Then add a workflow:
 
 ```yaml
-- uses: gulshanmsgit/ragcheck@v0
-  with:
-    config: ragcheck.yaml
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write      # for the PR comment
+jobs:
+  ragcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ...start your pipeline, or point the config at a deployed one...
+      - uses: gulshanmsgit/ragcheck@v0
+        with:
+          config: ragcheck.yaml
+          python-version: "3.12"
 ```
 
-The action runs the suite, uploads the HTML report as an artifact, posts a summary comment on the PR (updated in place on each push), and fails the check on a regression.
+The action:
+1. installs the RAGCheck version it's tagged with and runs the suite;
+2. uploads the HTML report as an artifact;
+3. posts a summary comment on the PR, updated in place on each push;
+4. fails the check on a regression.
+
+Make the check required in your branch protection rules to block the merge.
+
+| Input | Default | |
+|---|---|---|
+| `config` | `ragcheck.yaml` | Path to the config |
+| `working-directory` | `.` | Folder to run in |
+| `args` | | Extra `ragcheck run` flags, e.g. `--sample 200 --seed 1` |
+| `extras` | | e.g. `anthropic` |
+| `python-version` | | Set one up with `actions/setup-python`; empty uses the runner's Python |
+| `comment` | `true` | Post the PR comment |
+
+**A local judge in CI** needs a machine with Ollama: run the job on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners). A self-hosted runner executes the PR's code, so only run it for branches of your own repository, as [`rag-pr.yml`](.github/workflows/rag-pr.yml) does. On GitHub-hosted runners, use a cloud judge with the key in a repository secret.
 
 ## Commands
 

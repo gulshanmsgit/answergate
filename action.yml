@@ -1,0 +1,106 @@
+name: RAGCheck
+description: Regression tests for RAG pipelines. Fails the check and comments on the PR when answer quality drops.
+author: M S Gulshan
+branding:
+  icon: check-circle
+  color: orange
+
+inputs:
+  config:
+    description: Path to ragcheck.yaml, relative to working-directory
+    default: ragcheck.yaml
+  working-directory:
+    description: Folder to run in
+    default: .
+  args:
+    description: Extra arguments for `ragcheck run`, e.g. "--sample 200 --seed 1"
+    default: ""
+  extras:
+    description: Optional extras to install, e.g. "anthropic"
+    default: ""
+  python-version:
+    description: Install this Python with actions/setup-python first. Empty uses the Python already on the runner.
+    default: ""
+  comment:
+    description: Post (and update) a summary comment on the pull request
+    default: "true"
+  github-token:
+    description: "Token for the PR comment; needs `pull-requests: write`"
+    default: ${{ github.token }}
+
+outputs:
+  passed:
+    description: '"true" if the quality gate passed'
+    value: ${{ steps.run.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.python-version != ''
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install RAGCheck
+      shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        # Its own venv: system Pythons on hosted runners refuse global installs
+        PY=$(command -v python3 || command -v python)
+        "$PY" -m venv "$RUNNER_TEMP/ragcheck-venv"
+        BIN="$RUNNER_TEMP/ragcheck-venv/bin"; [ -d "$BIN" ] || BIN="$RUNNER_TEMP/ragcheck-venv/Scripts"
+        # The action installs the RAGCheck version it was tagged with
+        "$BIN/python" -m pip install -q "${GITHUB_ACTION_PATH}${EXTRAS:+[$EXTRAS]}"
+        echo "RAGCHECK_BIN=$BIN" >> "$GITHUB_ENV"
+
+    - name: Run RAGCheck
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CONFIG: ${{ inputs.config }}
+        ARGS: ${{ inputs.args }}
+        LABEL: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+      run: |
+        set +e
+        # shellcheck disable=SC2086  # ARGS is a list of flags
+        "$RAGCHECK_BIN/ragcheck" run -c "$CONFIG" -l "$LABEL" \
+          --md "$RUNNER_TEMP/ragcheck-summary.md" --html "$RUNNER_TEMP/ragcheck-report.html" $ARGS
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$code" = 0 ]; then echo "passed=true" >> "$GITHUB_OUTPUT"; else echo "passed=false" >> "$GITHUB_OUTPUT"; fi
+        [ -f "$RUNNER_TEMP/ragcheck-summary.md" ] && cat "$RUNNER_TEMP/ragcheck-summary.md" >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ragcheck-report
+        path: ${{ runner.temp }}/ragcheck-report.html
+        if-no-files-found: ignore
+
+    - name: Comment on the pull request
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && hashFiles(format('{0}/ragcheck-summary.md', runner.temp)) != ''
+      uses: actions/github-script@v7
+      env:
+        SUMMARY: ${{ runner.temp }}/ragcheck-summary.md
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const body = fs.readFileSync(process.env.SUMMARY, 'utf8');
+          const marker = '<!-- ragcheck-report -->';
+          const { owner, repo } = context.repo;
+          const issue_number = context.issue.number;
+          const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+          const mine = comments.find(c => c.body && c.body.includes(marker));
+          if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+          else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+    - name: Fail on a regression
+      if: steps.run.outputs.exit-code != '0'
+      shell: bash
+      run: |
+        echo "::error::RAGCheck failed (exit ${{ steps.run.outputs.exit-code }}): 1 = quality regressed, 2 = could not run"
+        exit 1

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src tests examples
+      - run: ruff format --check src tests examples
+      - run: mypy
+      - run: pytest -q
+
+  action:
+    # Smoke-test action.yml itself: it must install RAGCheck and run a suite with no LLM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make a tiny project
+        run: |
+          mkdir -p "$RUNNER_TEMP/demo" && cp tests/fake_rag.py "$RUNNER_TEMP/demo/"
+          cd "$RUNNER_TEMP/demo"
+          cat > golden.jsonl <<'EOF'
+          {"id": "refund", "question": "How long do I have to request a refund?", "expected_sources": ["refund-policy.md"]}
+          EOF
+          cat > ragcheck.yaml <<'EOF'
+          target: { type: python, callable: "fake_rag:answer" }
+          judge: { provider: none }
+          EOF
+      - id: rc
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/demo
+          comment: "false"
+      - run: test "${{ steps.rc.outputs.passed }}" = "true"

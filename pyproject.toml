@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ragcheck-ci"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Regression tests for RAG pipelines: catch quality drops in CI before your users do."
 readme = "README.md"
 license = "MIT"
