@@ -6,7 +6,7 @@
 
 **Regression tests for RAG pipelines.** Change a chunk size, an embedding model, a prompt or an LLM version, and RAGCheck tells you in the pull request whether answers got worse, and on which questions.
 
-A real run on the [FastAPI-docs assistant](examples/fastapi_qdrant): one pull request changed `CHUNK_SIZE` from 1000 to 250.
+A real run on the [FastAPI-docs assistant](https://github.com/gulshanmsgit/ragcheck/tree/main/examples/fastapi_qdrant): one pull request changed `CHUNK_SIZE` from 1000 to 250.
 
 ```
 $ ragcheck run -c ragcheck.yaml -l chunk-250
@@ -48,16 +48,16 @@ Teams test RAG by asking a few questions by hand. Quality then drops quietly aft
 
 ### A real pipeline
 
-[`examples/fastapi_qdrant`](examples/fastapi_qdrant) is a real RAG app:
+[`examples/fastapi_qdrant`](https://github.com/gulshanmsgit/ragcheck/tree/main/examples/fastapi_qdrant) is a real RAG app:
 - FastAPI over the FastAPI docs (95 pages);
 - bge-small embeddings, Qdrant and `granite4.1:8b` via Ollama;
 - 44 hand-written questions, with reference answers checked against the docs.
 
-The run above comes from there. [`rag-pr.yml`](.github/workflows/rag-pr.yml) runs it on every pull request that touches the demo. Running RAGCheck on real documents also exposed three bugs in RAGCheck's own checks; [the write-up](examples/fastapi_qdrant/README.md) has those and the full results.
+The run above comes from there. [`rag-pr.yml`](https://github.com/gulshanmsgit/ragcheck/blob/main/.github/workflows/rag-pr.yml) runs it on every pull request that touches the demo. Running RAGCheck on real documents also exposed three bugs in RAGCheck's own checks; [the write-up](https://github.com/gulshanmsgit/ragcheck/blob/main/examples/fastapi_qdrant/README.md) has those and the full results.
 
 ### Six industries, seven injected faults
 
-[`examples/industries`](examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Together they come with **1,070 golden questions** covering these edge cases:
+[`examples/industries`](https://github.com/gulshanmsgit/ragcheck/tree/main/examples/industries) has six small RAG pipelines: banking, healthcare, e-commerce, insurance, HR and manufacturing. Together they come with **1,070 golden questions** covering these edge cases:
 - paraphrases, typos, keyword queries and long rambling questions;
 - Hinglish;
 - users sharing their own PII;
@@ -71,7 +71,7 @@ python examples/industries/run_demo.py
 # 1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 19.0 s
 ```
 
-The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them. The demo also breaks the healthy runs down by edge case. In these pipelines, for example, keyword retrieval answers only 31% of paraphrased questions. Read [the full write-up](examples/industries/README.md).
+The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them. The demo also breaks the healthy runs down by edge case. In these pipelines, for example, keyword retrieval answers only 31% of paraphrased questions. Read [the full write-up](https://github.com/gulshanmsgit/ragcheck/blob/main/examples/industries/README.md).
 
 ## Quickstart
 
@@ -235,7 +235,7 @@ Make the check required in your branch protection rules to block the merge.
 | `python-version` | | Set one up with `actions/setup-python`; empty uses the runner's Python |
 | `comment` | `true` | Post the PR comment |
 
-**A local judge in CI** needs a machine with Ollama: run the job on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners). A self-hosted runner executes the PR's code, so only run it for branches of your own repository, as [`rag-pr.yml`](.github/workflows/rag-pr.yml) does. On GitHub-hosted runners, use a cloud judge with the key in a repository secret.
+**A local judge in CI** needs a machine with Ollama: run the job on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners). A self-hosted runner executes the PR's code, so only run it for branches of your own repository, as [`rag-pr.yml`](https://github.com/gulshanmsgit/ragcheck/blob/main/.github/workflows/rag-pr.yml) does. On GitHub-hosted runners, use a cloud judge with the key in a repository secret.
 
 ## Commands
 

@@ -35,6 +35,8 @@ ragcheck = "ragcheck.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/gulshanmsgit/ragcheck"
+Repository = "https://github.com/gulshanmsgit/ragcheck"
+Issues = "https://github.com/gulshanmsgit/ragcheck/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ragcheck"]
