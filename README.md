@@ -116,6 +116,25 @@ target:
 
 `expected_sources` matches the retrieved context ids. By default (`source_match: basename`), folders, letter case and spaces are ignored, and a chunk suffix after `#` is ignored too. So `refund-policy.md` matches `docs/Refund-Policy.md#2`. Set `source_match: exact` if two documents in different folders share a file name.
 
+#### Or generate a first draft from your documents
+
+```bash
+ragcheck generate docs/ -n 40                   # no LLM: from headings, definitions and "defaults to" lines
+ragcheck generate docs/ -n 40 --mode llm        # the judge model from ragcheck.yaml writes the questions
+```
+
+RAGCheck picks a passage first, then writes a question for it, so every question's expected source is known without labelling.
+- **`structure` mode** reads the documents' own structure, e.g. `` `max_age` - ... Defaults to `600` `` becomes *"What does `max_age` in CORS default to?"*, with the reference answer `600`. Same documents and seed, same file.
+- **`llm` mode** asks the model for one question per passage, at temperature 0 and cached. Code then checks every question:
+  - the model must quote its evidence, and the quote must be in the passage;
+  - every number in the answer must appear in the passage;
+  - the question must not copy the passage's wording;
+  - keyword search over all your documents must find its source page.
+
+  A question that fails a check is dropped, and the command prints how many went for each reason.
+
+Both modes spread questions across documents, skip names that appear in several documents (the source would be ambiguous), and add a few off-topic questions to decline (`--refusals`). They never overwrite an existing file without `--force`. Review the output like code: delete weak questions, then point `golden_set` at it.
+
 ### 3. Set the gate
 
 ```yaml
@@ -223,6 +242,7 @@ Make the check required in your branch protection rules to block the merge.
 | Command | What it does |
 |---|---|
 | `ragcheck init` | Create starter files |
+| `ragcheck generate DOCS` | Write a draft golden set from a folder of documents |
 | `ragcheck run` | Run the suite, compare with the baseline, write the reports |
 | `ragcheck run --save-baseline` | Same, then make this run the baseline if it passed |
 | `ragcheck run --no-judge` | Retrieval metrics and regex guardrails only, no LLM calls |

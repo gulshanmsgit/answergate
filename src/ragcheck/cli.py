@@ -423,6 +423,82 @@ def calibrate(
     raise typer.Exit(EXIT_FAILED)
 
 
+@app.command()
+@_guard
+def generate(
+    docs: Annotated[Path, typer.Argument(help="Folder of documents (.md, .mdx, .txt, .rst)")],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Golden set to write")] = Path(
+        "golden.generated.jsonl"
+    ),
+    n: Annotated[int, typer.Option("--n", "-n", min=1, help="How many questions to write")] = 40,
+    mode: Annotated[
+        str,
+        typer.Option(
+            help="structure: no LLM, from headings and definitions; llm: the judge model writes them"
+        ),
+    ] = "structure",
+    refusals: Annotated[
+        int, typer.Option(min=0, help="Off-topic questions to add, which must be declined")
+    ] = 3,
+    seed: Annotated[int, typer.Option(help="Same seed and documents, same questions")] = 7,
+    config: ConfigOpt = Path("ragcheck.yaml"),
+    force: Annotated[bool, typer.Option(help="Overwrite the output file")] = False,
+) -> None:
+    """Write a golden set from your documents. Each question's expected source is the passage it was written from."""
+    from ragcheck.generate import generate_llm, generate_structure, load_sections, with_refusals
+
+    if mode not in ("structure", "llm"):
+        _die(f"--mode must be structure or llm, not {mode!r}")
+    if not docs.is_dir():
+        _die(f"Not a folder: {docs}")
+    if out.exists() and not force:
+        _die(f"{out} exists. Review and keep it, or pass --force to overwrite.")
+    sections = load_sections(docs)
+    if not sections:
+        _die(f"No document sections found in {docs} (looked for .md, .mdx, .txt and .rst files).")
+
+    if mode == "structure":
+        result = generate_structure(sections, n, seed)
+    else:
+        cfg = _load(config)
+        try:
+            judge = make_judge(cfg)
+        except FatalJudgeError as e:
+            _die(str(e))
+        if judge is None:
+            _die("--mode llm uses the judge model from the config: set judge.provider (e.g. ollama).")
+
+        async def go() -> Any:
+            try:
+                await judge.preflight()
+                return await generate_llm(sections, n, judge, seed, batch=max(1, cfg.judge.concurrency) * 2)
+            finally:
+                await judge.aclose()
+
+        typer.echo(f"Writing up to {n} questions with {judge.name}…")
+        try:
+            result = asyncio.run(go())
+        except FatalJudgeError as e:
+            _die(f"Judge setup problem: {e}")
+
+    with_refusals(result, refusals)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "".join(c.model_dump_json(exclude_defaults=True) + "\n" for c in result.cases), encoding="utf-8"
+    )
+    answerable = sum(not c.expect_refusal for c in result.cases)
+    typer.echo(
+        f"Wrote {len(result.cases)} questions to {out}: {answerable} from "
+        f"{len({c.expected_sources[0] for c in result.cases if c.expected_sources})} documents, "
+        f"{len(result.cases) - answerable} to decline."
+    )
+    if result.dropped:
+        typer.echo("  Dropped: " + ", ".join(f"{k} {v}" for k, v in result.dropped.most_common()))
+    if answerable < n:
+        typer.secho(f"  Only {answerable} of {n} questions passed the checks.", fg=typer.colors.YELLOW)
+    typer.echo("Review the file like code, delete weak questions, then set golden_set to it.")
+
+
 @app.command("baseline")
 @_guard
 def set_baseline(
