@@ -25,7 +25,7 @@ ragcheck run -c ragcheck.yaml        # in another terminal
 
 ## The experiment: chunks from 1,000 to 250 characters
 
-It's a one-line change that looks harmless in review. Smaller chunks are often recommended for "more precise retrieval". Measured on this pipeline, on one machine (Ollama on a consumer GPU), about 35 minutes per run:
+It's a one-line change that looks harmless in review. Smaller chunks are often recommended for "more precise retrieval". Measured on this pipeline, on one machine (Ollama on a consumer GPU): 35 to 75 minutes per run, faster once the judge cache is warm.
 
 | Metric | 1,000-char chunks | 250-char chunks | Change [95% CI] |
 |---|---:|---:|---:|
@@ -45,7 +45,7 @@ It's a one-line change that looks harmless in review. Smaller chunks are often r
 - the line saying `CORSMiddleware`'s `allow_methods` defaults to `['GET']`;
 - the sentence naming `pydantic-settings`.
 
-The model then honestly answers "I don't know based on the FastAPI docs."
+The model then honestly answers "I don't know based on the FastAPI docs." That happened on 3 questions; on others the answers lost details. Of the 19 questions that got worse, 16 scored lower on an answer metric and 3 only ranked the right page lower.
 
 A retrieval-only dashboard would have approved this PR. It takes answer-level checks against reference answers to see it.
 
@@ -74,4 +74,4 @@ The judge isn't perfect either. Once in 88 judged answers, granite garbled its o
 3. uploads the HTML report;
 4. fails the check on a regression.
 
-It runs on a **self-hosted runner** with Ollama, so documents and answers stay on that machine. A self-hosted runner executes the PR's code, so the job only runs for branches of the same repository, never forks.
+It runs on a **self-hosted runner** with Ollama, so documents and answers stay on that machine. Until a runner is registered, the job waits in the queue; the results above come from running [`experiment.sh`](experiment.sh) locally, which runs the same suite. A self-hosted runner executes the PR's code, so the job only runs for branches of the same repository, never forks.

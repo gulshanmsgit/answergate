@@ -40,7 +40,7 @@ Plus the traps in the documents themselves:
 
 ```bash
 pip install -e .                                   # from the repo root
-python examples/industries/run_demo.py             # all six industries, no LLM, about 20 s
+python examples/industries/run_demo.py             # all six industries, no LLM, under 30 s
 ```
 
 For each industry the script:
@@ -51,7 +51,7 @@ For each industry the script:
 That is 54 runs and 9,630 question checks. It writes a scorecard to `out/scorecard.md` and an HTML report per run to `out/<industry>/`. Measured without a judge:
 
 ```
-1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 19.0 s
+1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 25.7 s
 ```
 
 ## The faults

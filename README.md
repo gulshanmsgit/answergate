@@ -27,7 +27,7 @@ FAILED
   ✕ relevance dropped 0.087 on the 40 questions in both runs; allowed 0.050 (95% CI -0.169 to -0.025)
 ```
 
-Retrieval looked fine: the right page was still found 97.5% of the time. But 250-character chunks cut facts off mid-page, so the model started answering "I don't know" to questions it used to get right. A retrieval-only dashboard would have approved this change.
+Retrieval looked fine: the right page was still found 97.5% of the time. But 250-character chunks cut facts off mid-page: three answers turned into "I don't know", and others lost details. 19 of the 44 questions got worse. A retrieval-only dashboard would have approved this change.
 
 ## Why
 
@@ -53,7 +53,7 @@ Teams test RAG by asking a few questions by hand. Quality then drops quietly aft
 - bge-small embeddings, Qdrant and `granite4.1:8b` via Ollama;
 - 44 hand-written questions, with reference answers checked against the docs.
 
-The run above comes from there. [`rag-pr.yml`](https://github.com/gulshanmsgit/ragcheck/blob/main/.github/workflows/rag-pr.yml) runs it on every pull request that touches the demo. Running RAGCheck on real documents also exposed three bugs in RAGCheck's own checks; [the write-up](https://github.com/gulshanmsgit/ragcheck/blob/main/examples/fastapi_qdrant/README.md) has those and the full results.
+The run above comes from there. [`rag-pr.yml`](https://github.com/gulshanmsgit/ragcheck/blob/main/.github/workflows/rag-pr.yml) is set up to run it on every pull request that touches the demo, on a self-hosted runner with Ollama. Running RAGCheck on real documents also exposed three bugs in RAGCheck's own checks; [the write-up](https://github.com/gulshanmsgit/ragcheck/blob/main/examples/fastapi_qdrant/README.md) has those and the full results.
 
 ### Six industries, seven injected faults
 
@@ -68,7 +68,7 @@ One command breaks each pipeline in seven realistic ways (stale index, top_k cha
 
 ```bash
 python examples/industries/run_demo.py
-# 1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 19.0 s
+# 1070 questions · 9630 question checks · 36 of 42 injected faults caught · 6 need a judge · 0 false alarms · 0 problems · judge: none · 25.7 s
 ```
 
 The 6 not caught are hallucinations, which only a judge can see; add `--judge ollama` to include them. The demo also breaks the healthy runs down by edge case. In these pipelines, for example, keyword retrieval answers only 31% of paraphrased questions. Read [the full write-up](https://github.com/gulshanmsgit/ragcheck/blob/main/examples/industries/README.md).
@@ -187,7 +187,7 @@ RAGCheck has three accuracy safeguards built in:
 | A run was interrupted | `ragcheck run --resume`: finished questions are checkpointed as they complete |
 | Protect a production endpoint | `rate_limit_rps: 5` in the config |
 
-Questions run on a fixed worker pool, and judge results go into one SQLite cache file that parallel shards can share. The HTML report always shows every problem, plus passing questions up to `--report-limit`. In a benchmark with instant fake pipeline and judge, a 50,000-question run held about 1,100 questions per second, with a peak of 159 MB memory. In real use, your pipeline and the judge model set the speed.
+Questions run on a fixed worker pool, and judge results go into one SQLite cache file that parallel shards can share. The HTML report always shows every problem, plus passing questions up to `--report-limit`. With an instant fake pipeline and judge, 50,000 questions, each judged on three metrics, took 36.9 s (about 1,350 questions per second) with a peak of 225 MB memory on a Windows laptop; [`examples/benchmark`](https://github.com/gulshanmsgit/ragcheck/tree/main/examples/benchmark) reproduces it. In real use, your pipeline and the judge model set the speed.
 
 ### How the gate stays fair
 - **Changes are measured only on questions that exist in both runs.** Adding hard new questions never counts as a regression, and deleting questions never hides one. New questions are checked against the absolute minimums.
