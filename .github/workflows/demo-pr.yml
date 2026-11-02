@@ -1,0 +1,42 @@
+name: Demo PR check
+
+# AnswerGate on a pull request, end to end, on GitHub's own runners: the ShopKart demo pipeline
+# (examples/industries, no LLM needed) is run at the base branch to make the baseline, then at the PR,
+# and the action comments on the PR with what got worse.
+on:
+  pull_request:
+    paths:
+      - "examples/industries/**"
+      - "src/**"
+      - "action.yml"
+      - ".github/workflows/demo-pr.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  shopkart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Baseline from the base branch
+        run: |
+          python -m venv "$RUNNER_TEMP/base-venv"
+          "$RUNNER_TEMP/base-venv/bin/pip" install -q ./base
+          cd base/examples/industries
+          "$RUNNER_TEMP/base-venv/bin/answergate" run -c ecommerce.yaml -l base || true
+          "$RUNNER_TEMP/base-venv/bin/answergate" baseline -c ecommerce.yaml
+          mkdir -p "$GITHUB_WORKSPACE/examples/industries/.answergate"
+          cp -r .answergate/ecommerce "$GITHUB_WORKSPACE/examples/industries/.answergate/"
+      - uses: ./
+        with:
+          working-directory: examples/industries
+          config: ecommerce.yaml
