@@ -41,6 +41,10 @@ Issues = "https://github.com/gulshanmsgit/answergate/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/answergate"]
 
+# The README video stays on GitHub; it would only bloat the source package
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/media"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py310"

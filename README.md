@@ -9,6 +9,10 @@
 
 _Formerly named RAGCheck._
 
+[![Watch the 95-second explainer (sound on)](https://raw.githubusercontent.com/gulshanmsgit/answergate/main/docs/media/answergate-explainer.png)](https://github.com/gulshanmsgit/answergate/blob/main/docs/media/answergate-explainer.mp4)
+
+▶ [Watch the 95-second explainer](https://github.com/gulshanmsgit/answergate/blob/main/docs/media/answergate-explainer.mp4) (sound on): the problem, how the gate works, and the measured results.
+
 A real run on the [FastAPI-docs assistant](https://github.com/gulshanmsgit/answergate/tree/main/examples/fastapi_qdrant): a change of `CHUNK_SIZE` from 1000 to 250, run locally.
 
 ```
