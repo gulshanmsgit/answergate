@@ -29,7 +29,7 @@ from typing import Any
 HERE = Path(__file__).parent
 INDUSTRIES = ("banking", "healthcare", "ecommerce", "insurance", "hr", "manufacturing")
 FAULTS = ("stale_index", "top_k_1", "rerank_bug", "no_refusal", "pii_leak", "injectable", "hallucinate")
-TOP_K = 3
+TOP_K = 1
 
 REFUSAL = "I'm sorry, but I don't have information about that in my documents."
 STOPWORDS = frozenset(
