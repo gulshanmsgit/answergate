@@ -1,6 +1,7 @@
 # AnswerGate
 
 [![CI](https://github.com/gulshanmsgit/answergate/actions/workflows/ci.yml/badge.svg)](https://github.com/gulshanmsgit/answergate/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/answergate)](https://pypi.org/project/answergate/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
@@ -78,7 +79,7 @@ The 6 not caught are hallucinations, which only a judge can see; add `--judge ol
 ## Quickstart
 
 ```bash
-pip install git+https://github.com/gulshanmsgit/answergate   # PyPI release (answergate) coming soon
+pip install answergate
 answergate init            # writes answergate.yaml, golden.jsonl and canary-doc.md
 answergate run --save-baseline
 # ...change something in your pipeline...
