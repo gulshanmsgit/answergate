@@ -111,6 +111,35 @@ target:
   callable: my_app.rag:answer      # answer(question) -> {"answer": ..., "contexts": [...]}
 ```
 
+#### Report your settings, and AnswerGate says what changed
+
+Add a `pipeline` object to each response with whatever settings you want tracked:
+
+```json
+{"answer": "...", "contexts": [...], "pipeline": {"llm": "granite4.1:8b", "temperature": 0, "chunk_size": 1000, "top_k": 4}}
+```
+
+AnswerGate stores them with each run. When something changes, the terminal, the PR comment and the HTML report all start with it, next to whatever dropped:
+
+```
+**What changed in the pipeline:** `temperature` 0 → 1
+```
+
+`0` and `0.0` (or `true` and `True`) count as the same value. A setting that differs between answers in one run is marked "varied". Nested objects are flattened (`llm.model`). Use `pipeline_path` if your response puts it somewhere else.
+
+#### Catch unstable answers: `repeats`
+
+```yaml
+repeats: 3        # ask each question 3 times
+```
+
+Raising the temperature, or switching to a model that samples differently, can leave average quality unchanged while the answer to the same question changes from one ask to the next. With `repeats`, AnswerGate asks each question several times and adds a `consistency` metric: how much the answers agree, from 1.0 (identical) down. It is gated like any other metric, so a drop fails the PR.
+- **Agreement is measured on words.** Answers that disagree on a number or a negation ("600 seconds" vs "60 seconds", "is allowed" vs "is not allowed") count as at most half consistent, even though they share most words.
+- **Only the first answer is graded by the judge,** so repeats cost pipeline calls, not judge calls.
+- **A repeat that fails leaves consistency unscored** for that question, rather than counting it as consistent.
+
+Measured on the FastAPI-docs assistant, temperature 0 → 1: correctness, faithfulness and relevance all moved within noise, but consistency fell from 0.848 to 0.509 (95% CI −0.407 to −0.270), so the gate failed and named the change. [The run](https://github.com/gulshanmsgit/answergate/tree/main/examples/fastapi_qdrant#the-experiment-temperature-from-0-to-1).
+
 ### 2. Write a golden set
 
 `golden.jsonl` has one case per line:
@@ -201,7 +230,7 @@ Questions run on a fixed worker pool, and judge results go into one SQLite cache
 - **Incomplete runs never pass.** If the pipeline errors, the judge fails, or a metric from the baseline vanishes (say the judge was switched off), the run fails. It never quietly scores as a pass.
 - **Flaky calls are retried with backoff:** pipeline calls (`retries`, `target_timeout_s`) and judge calls (timeouts, 429s, 5xx errors, malformed JSON). Corrupted cache entries are ignored.
 - **A small golden set gets a warning.** With fewer than 20 questions, one question moves a metric by 5% or more.
-- **Only a passing run can become the baseline** with `--save-baseline`. To accept a failing one on purpose, use `answergate baseline`.
+- **Only a passing run can become the baseline** with `--save-baseline`. To accept a failing one on purpose, use `answergate baseline`. It refuses a run where questions got no answer or scores are missing, since such a baseline could never show a regression; `--force` overrides.
 - **Adopting it on a pipeline that isn't perfect yet:** with `thresholds.guardrail_gate: new`, guardrail failures already in the accepted baseline show as warnings, and any *new* failure still fails the gate. The default, `all`, fails on every guardrail failure.
 
 ## In CI (GitHub Actions)
@@ -219,7 +248,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # ...start your pipeline, or point the config at a deployed one...
-      - uses: gulshanmsgit/answergate@v0.2.0
+      - uses: gulshanmsgit/answergate@v0.3.0
         with:
           config: answergate.yaml
           python-version: "3.12"

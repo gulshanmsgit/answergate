@@ -21,7 +21,7 @@ uvicorn app:app --port 8000          # indexes into Qdrant on first start
 answergate run -c answergate.yaml        # in another terminal
 ```
 
-`bash experiment.sh 250 40` runs the whole comparison below: a baseline at the committed settings, then a run with `CHUNK_SIZE=250, CHUNK_OVERLAP=40`.
+`bash experiment.sh CHUNK_SIZE=250 CHUNK_OVERLAP=40` runs the whole comparison below: a baseline at the committed settings, then a run with those settings changed. Any `NAME=VALUE` from the settings block at the top of [`rag.py`](rag.py) works, e.g. `TEMPERATURE=1.0`.
 
 ## The experiment: chunks from 1,000 to 250 characters
 
@@ -48,6 +48,33 @@ It's a one-line change that looks harmless in review. Smaller chunks are often r
 The model then honestly answers "I don't know based on the FastAPI docs." That happened on 3 questions; on others the answers lost details. Of the 19 questions that got worse, 16 scored lower on an answer metric and 3 only ranked the right page lower.
 
 A retrieval-only dashboard would have approved this PR. It takes answer-level checks against reference answers to see it.
+
+## The experiment: temperature from 0 to 1
+
+The second one-line change: `TEMPERATURE = 0.0` → `1.0`. This needs AnswerGate 0.3.0: [`answergate.yaml`](answergate.yaml) sets `repeats: 3`, so every question is asked three times, and `rag.py` reports its settings in a `pipeline` object.
+
+This run used Ollama's cloud models instead of the local GPU: `gpt-oss:20b` as the pipeline's LLM and `gpt-oss:120b` as the judge (it scored 32/32 on `answergate calibrate`, like granite). Same documents, same 44 questions. Each run took about 3 minutes. To repeat it:
+
+```bash
+CONFIG=answergate.cloud.yaml RAG_LLM=gpt-oss:20b-cloud bash experiment.sh TEMPERATURE=1.0
+```
+
+| Metric | Temperature 0 | Temperature 1 | Change [95% CI] |
+|---|---:|---:|---:|
+| Answer consistency | 0.848 | 0.509 | **−0.339** [−0.407, −0.270] |
+| Correctness | 0.887 | 0.869 | −0.019 [−0.100, +0.056] |
+| Faithfulness | 0.890 | 0.917 | +0.027 [−0.051, +0.104] |
+| Answer relevance | 0.925 | 0.894 | −0.031 [−0.100, +0.031] |
+| Hit rate | 0.975 | 0.975 | ±0 |
+
+**AnswerGate failed the change, on consistency alone.** The PR comment ([full text](results/temperature-1.0.md), [HTML report](results/temperature-1.0.html)) opens with:
+
+> **Answer consistency dropped 40% (0.848 → 0.509) · 27 of 44 questions got worse**
+> **What changed in the pipeline:** `temperature` 0 → 1
+
+- **Every judged metric stayed within noise:** each interval includes zero. Without `repeats`, this change would have passed.
+- **What it looks like:** asked "Which status code should an endpoint return after creating a new record?" three times, the model answered "201 Created" twice and "I don't know based on the FastAPI docs." once.
+- **Temperature 0 is not perfectly repeatable on a cloud model** (consistency 0.848, not 1.0), probably because requests are batched on shared servers. The gate still separates the two settings clearly.
 
 ## What the real pipeline taught AnswerGate
 

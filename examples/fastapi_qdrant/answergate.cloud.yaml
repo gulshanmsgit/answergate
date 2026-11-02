@@ -1,0 +1,27 @@
+# The same suite on Ollama cloud models (run `ollama signin` once). Start the app with RAG_LLM=gpt-oss:20b-cloud.
+target:
+  type: http
+  url: http://localhost:8000/ask
+  timeout_s: 300
+
+golden_set: golden.jsonl
+k: 4
+# Expected sources are whole pages ("tutorial/cors.md"), so they stay valid when chunking changes
+source_match: exact
+# Cloud models serve several requests at once
+concurrency: 4
+# Ask each question 3 times: `consistency` catches answers that change from one ask to the next
+repeats: 3
+
+judge:
+  provider: ollama
+  model: gpt-oss:120b-cloud   # passed `answergate calibrate`: 32/32 on all four metrics
+  timeout_s: 300
+  concurrency: 4
+
+thresholds:
+  min:
+    hit_rate: 0.8
+  default_max_drop: 0.05
+  guardrails_must_pass: true
+  guardrail_gate: new

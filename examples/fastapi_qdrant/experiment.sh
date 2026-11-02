@@ -2,11 +2,13 @@
 # Measure one pipeline change end to end: a baseline at the committed settings, then a run with the change.
 #   bash experiment.sh CHUNK_SIZE=250 CHUNK_OVERLAP=40
 #   bash experiment.sh TEMPERATURE=1.0
+# CONFIG=answergate.cloud.yaml RAG_LLM=gpt-oss:20b-cloud bash experiment.sh TEMPERATURE=1.0 runs it on Ollama cloud.
 # Each NAME=VALUE replaces that setting at the top of rag.py. Needs `ollama serve`. Restores rag.py afterwards.
 set -u
 cd "$(dirname "$0")"
 PY=../../.venv/Scripts/python
 AG=../../.venv/Scripts/answergate
+CONFIG=${CONFIG:-answergate.yaml}
 NAME=$(echo "$*" | tr ' =' '_-' | tr '[:upper:]' '[:lower:]')
 mkdir -p out
 cp rag.py out/rag.py.orig
@@ -21,8 +23,8 @@ serve() {
 
 start=$(date +%s)
 serve baseline
-$AG run -c answergate.yaml -l "baseline" --html out/baseline.html --md out/baseline.md
-$AG baseline -c answergate.yaml
+$AG run -c "$CONFIG" -l "baseline" --html out/baseline.html --md out/baseline.md
+$AG baseline -c "$CONFIG"
 kill $APP; wait $APP 2>/dev/null
 echo "baseline done in $(( $(date +%s) - start ))s"
 
@@ -30,5 +32,5 @@ for kv in "$@"; do
   sed -i "s/^${kv%%=*} = [^#]*/${kv%%=*} = ${kv#*=}  /" rag.py
 done
 serve "$NAME"
-$AG run -c answergate.yaml -l "$NAME" --html "out/$NAME.html" --md "out/$NAME.md"
+$AG run -c "$CONFIG" -l "$NAME" --html "out/$NAME.html" --md "out/$NAME.md"
 echo "exit $? · total $(( $(date +%s) - start ))s"

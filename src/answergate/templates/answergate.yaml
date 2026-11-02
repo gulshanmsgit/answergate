@@ -9,6 +9,7 @@ target:
   contexts_path: contexts    # list of retrieved chunks: strings, or objects with id + text
   context_id_field: id
   context_text_field: text
+  # pipeline_path: pipeline  # optional object with your settings (model, temperature...): AnswerGate reports changes
   # headers: { Authorization: "Bearer ${MY_API_TOKEN}" }   # ${VAR} reads an environment variable
 
 # Option 2: a Python function, fn(question) -> {"answer": str, "contexts": [...]}
@@ -32,6 +33,7 @@ k: 5                         # top-k contexts used by the retrieval metrics
 source_match: basename       # basename: 'docs/Refund.md#2' matches 'refund.md'; exact: ids must match as written
 target_timeout_s: 120        # a slower pipeline answer counts as an error
 concurrency: 4
+# repeats: 3                # ask each question 3 times; `consistency` catches answers that change between asks
 # rate_limit_rps: 5         # cap questions per second sent to your pipeline
 
 thresholds:

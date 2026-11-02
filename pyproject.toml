@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "answergate"
-version = "0.2.0"
+version = "0.3.0"
 description = "Regression tests for AI assistants: fail the pull request when answers get worse."
 readme = "README.md"
 license = "MIT"
