@@ -100,6 +100,10 @@
   <div class="cards">{% for d in verdict.guardrails %}{{ card(d) }}{% endfor %}</div>
   {% endif %}
 
+  {% if verdict.pipeline_changes %}
+  <h2>What changed in the pipeline</h2>
+  <ul class="list warn">{% for c in verdict.pipeline_changes %}<li><code>{{ c.key }}</code>: {{ c.before or "not reported" }} → {{ c.after or "not reported" }}</li>{% endfor %}</ul>
+  {% endif %}
   {% if verdict.failures %}
   <h2>Why it failed</h2>
   <ul class="list fail">{% for f in verdict.failures %}<li>{{ f }}</li>{% endfor %}</ul>
@@ -140,6 +144,11 @@
             <div class="answer">{{ b.answer if b else "—" }}</div>
           </div>
         </div>
+        {% if r.repeat_answers %}
+        <div><div class="label">The same question, asked again · this run</div>
+          {% for a in r.repeat_answers %}<div class="answer">{{ a }}</div>{% endfor %}
+        </div>
+        {% endif %}
         {% if r.case.reference_answer %}<div><div class="label">Reference answer</div><div class="answer">{{ r.case.reference_answer }}</div></div>{% endif %}
         {% if r.notes %}
         <div>

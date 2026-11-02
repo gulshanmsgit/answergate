@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
+import re
 import statistics
 import time
 import uuid
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +33,9 @@ async def _ask(target: Target, case: GoldenCase, retries: int, timeout_s: float)
         try:
             resp = await asyncio.wait_for(target.ask(case.question), timeout_s)
             ms = (time.perf_counter() - start) * 1000
-            return CaseResult(case=case, answer=resp.answer, contexts=resp.contexts, latency_ms=ms)
+            return CaseResult(
+                case=case, answer=resp.answer, contexts=resp.contexts, latency_ms=ms, pipeline=resp.pipeline
+            )
         except asyncio.TimeoutError:
             error = f"TimeoutError: no answer within {timeout_s:g}s"
         except Exception as e:
@@ -40,6 +45,36 @@ async def _ask(target: Target, case: GoldenCase, retries: int, timeout_s: float)
             delay *= 2
     tries = f" (after {retries + 1} attempts)" if retries else ""
     return CaseResult(case=case, error=error + tries)
+
+
+_NEGATION = re.compile(r"\b(not|no|never|none|cannot|can't|don't|doesn't|isn't|aren't|won't|without)\b")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def answer_overlap(a: str, b: str) -> float:
+    """Word-overlap F1 between two answers: 1.0 for the same words, near 0 for unrelated ones.
+    Answers that disagree on a number or on a negation share most words but not the fact, so they
+    count as at most half consistent ("600 seconds" vs "60 seconds", "is allowed" vs "is not allowed")."""
+    a, b = a.lower(), b.lower()
+    ta, tb = Counter(re.findall(r"\w+", a)), Counter(re.findall(r"\w+", b))
+    if not ta and not tb:
+        return 1.0
+    common = sum((ta & tb).values())
+    if not common:
+        return 0.0
+    p, r = common / sum(ta.values()), common / sum(tb.values())
+    score = 2 * p * r / (p + r)
+    if set(_NUMBER.findall(a)) != set(_NUMBER.findall(b)) or bool(_NEGATION.search(a)) != bool(
+        _NEGATION.search(b)
+    ):
+        score = min(score, 0.5)
+    return score
+
+
+def consistency(answers: list[str]) -> float:
+    """Mean overlap over every pair of answers to the same question."""
+    pairs = list(itertools.combinations(answers, 2))
+    return round(statistics.fmean(answer_overlap(a, b) for a, b in pairs), 4) if pairs else 1.0
 
 
 async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) -> None:
@@ -122,6 +157,19 @@ def _percentile(values: list[float], p: float) -> float:
     return s[min(len(s) - 1, round(p * (len(s) - 1)))]
 
 
+def run_pipeline_settings(results: list[CaseResult]) -> dict[str, str]:
+    """Each setting's most common reported value; a setting that varied between answers says so."""
+    seen: dict[str, Counter[str]] = {}
+    for r in results:
+        for k, v in r.pipeline.items():
+            seen.setdefault(k, Counter())[v] += 1
+    out: dict[str, str] = {}
+    for k, counts in sorted(seen.items()):
+        value = counts.most_common(1)[0][0]
+        out[k] = value if len(counts) == 1 else f"{value} (varied: {len(counts)} values)"
+    return out
+
+
 def build_run(results: list[CaseResult], config_hash: str, label: str, source_match: str) -> RunResult:
     """Aggregate per-question results into a run. Used after a run, a resume and a shard merge."""
     metrics, rails = aggregate(results)
@@ -140,6 +188,7 @@ def build_run(results: list[CaseResult], config_hash: str, label: str, source_ma
         errors=sum(1 for r in results if r.error),
         judge_errors=sum(1 for r in results if r.judge_error),
         source_match=source_match,  # type: ignore[arg-type]
+        pipeline=run_pipeline_settings(results),
     )
 
 
@@ -232,6 +281,8 @@ async def run(
     async def one(case: GoldenCase) -> CaseResult:
         await limiter.wait()
         res = await _ask(target, case, cfg.retries, cfg.target_timeout_s)
+        if res.error is None and cfg.repeats > 1 and not case.expect_refusal:
+            await ask_again(res)
         if res.error is None:
             try:
                 await score_case(res, cfg, judge)
@@ -241,6 +292,25 @@ async def run(
                 # A scoring bug must not take down the whole run
                 res.judge_error = f"Scoring failed: {type(e).__name__}: {e}"[:500]
         return res
+
+    async def ask_again(res: CaseResult) -> None:
+        """Ask the same question repeats - 1 more times and score how much the answers agree."""
+        for _ in range(cfg.repeats - 1):
+            await limiter.wait()
+            again = await _ask(target, res.case, cfg.retries, cfg.target_timeout_s)
+            if again.error is not None:
+                res.notes["consistency"] = f"Not scored: a repeat failed ({again.error})"[:300]
+                return
+            res.repeat_answers.append(again.answer)
+        score = consistency([res.answer, *res.repeat_answers])
+        if "consistency" in cfg.metrics:
+            res.scores["consistency"] = score
+        n = len(res.repeat_answers) + 1
+        res.notes["consistency"] = (
+            f"{n} answers to the same question were identical"
+            if score == 1.0
+            else f"{n} answers to the same question share {score:.0%} of their words"
+        )
 
     async def worker() -> None:
         # A fixed pool of workers pulls from the queue: memory stays flat however many questions there are

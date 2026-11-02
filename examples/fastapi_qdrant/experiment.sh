@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Measure one pipeline change end to end: baseline at the committed settings, then the changed run.
-#   bash experiment.sh 250 40      # CHUNK_SIZE=250, CHUNK_OVERLAP=40 against the committed baseline
-# Needs `ollama serve` running. Restores rag.py afterwards.
+# Measure one pipeline change end to end: a baseline at the committed settings, then a run with the change.
+#   bash experiment.sh CHUNK_SIZE=250 CHUNK_OVERLAP=40
+#   bash experiment.sh TEMPERATURE=1.0
+# Each NAME=VALUE replaces that setting at the top of rag.py. Needs `ollama serve`. Restores rag.py afterwards.
 set -u
 cd "$(dirname "$0")"
 PY=../../.venv/Scripts/python
-RC=../../.venv/Scripts/answergate
+AG=../../.venv/Scripts/answergate
+NAME=$(echo "$*" | tr ' =' '_-' | tr '[:upper:]' '[:lower:]')
 mkdir -p out
 cp rag.py out/rag.py.orig
 trap 'cp out/rag.py.orig rag.py; kill $APP 2>/dev/null' EXIT
@@ -19,12 +21,14 @@ serve() {
 
 start=$(date +%s)
 serve baseline
-$RC run -c answergate.yaml -l "chunk-1000" --html out/baseline.html --md out/baseline.md
-$RC baseline -c answergate.yaml
+$AG run -c answergate.yaml -l "baseline" --html out/baseline.html --md out/baseline.md
+$AG baseline -c answergate.yaml
 kill $APP; wait $APP 2>/dev/null
 echo "baseline done in $(( $(date +%s) - start ))s"
 
-sed -i "s/^CHUNK_SIZE = .*/CHUNK_SIZE = $1  # characters per chunk/; s/^CHUNK_OVERLAP = .*/CHUNK_OVERLAP = $2  # characters repeated between neighbouring chunks/" rag.py
-serve "chunk-$1"
-$RC run -c answergate.yaml -l "chunk-$1" --html "out/chunk-$1.html" --md "out/chunk-$1.md"
+for kv in "$@"; do
+  sed -i "s/^${kv%%=*} = [^#]*/${kv%%=*} = ${kv#*=}  /" rag.py
+done
+serve "$NAME"
+$AG run -c answergate.yaml -l "$NAME" --html "out/$NAME.html" --md "out/$NAME.md"
 echo "exit $? · total $(( $(date +%s) - start ))s"

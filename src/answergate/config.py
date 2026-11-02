@@ -31,6 +31,9 @@ class HttpTargetConfig(BaseModel):
     contexts_path: str = "contexts"
     context_id_field: str = "id"
     context_text_field: str = "text"
+    # Optional object in the response with the pipeline's settings (model, temperature, chunk size...);
+    # AnswerGate records them and reports which ones changed since the baseline
+    pipeline_path: str = "pipeline"
     timeout_s: float = 60.0
 
 
@@ -68,6 +71,7 @@ METRICS = (
     "faithfulness",
     "relevance",
     "correctness",
+    "consistency",
 )
 
 
@@ -102,8 +106,12 @@ class Config(BaseModel):
             "faithfulness",
             "relevance",
             "correctness",
+            "consistency",
         ]
     )
+    # Ask each question this many times; with 2+, `consistency` scores how much the answers agree
+    # (catches a temperature or sampling change that makes answers unstable)
+    repeats: int = Field(default=1, ge=1, le=10)
     # Top-k retrieved contexts considered by the retrieval metrics
     k: int = Field(default=5, ge=1)
     concurrency: int = Field(default=4, ge=1)

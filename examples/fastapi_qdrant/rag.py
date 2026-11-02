@@ -22,6 +22,7 @@ CHUNK_OVERLAP = 150  # characters repeated between neighbouring chunks
 TOP_K = 4  # chunks given to the LLM
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 LLM_MODEL = os.environ.get("RAG_LLM", "granite4.1:8b")
+TEMPERATURE = 1.0  # 0 = always the most likely next word
 # -----------------------------------------------------------------------------
 
 HERE = Path(__file__).parent
@@ -152,7 +153,7 @@ def generate(question: str, contexts: list[Chunk]) -> str:
                 {"role": "user", "content": f"Context:\n{passages}\n\nQuestion: {question}"},
             ],
             "stream": False,
-            "options": {"temperature": 0, "seed": 7, "num_predict": 300},
+            "options": {"temperature": TEMPERATURE, "num_predict": 300},
         },
         timeout=300,
     )
@@ -160,9 +161,22 @@ def generate(question: str, contexts: list[Chunk]) -> str:
     return str(r.json()["message"]["content"]).strip()
 
 
+def settings() -> dict[str, object]:
+    """The knobs above, reported with every answer so AnswerGate can say what changed."""
+    return {
+        "llm": LLM_MODEL,
+        "temperature": TEMPERATURE,
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "top_k": TOP_K,
+        "embed_model": EMBED_MODEL,
+    }
+
+
 def answer(question: str) -> dict[str, object]:
     contexts = retrieve(question)
     return {
         "answer": generate(question, contexts),
         "contexts": [{"id": c.id, "text": c.text} for c in contexts],
+        "pipeline": settings(),
     }

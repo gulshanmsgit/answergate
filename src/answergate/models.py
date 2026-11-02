@@ -31,6 +31,8 @@ class Context(BaseModel):
 class TargetResponse(BaseModel):
     answer: str
     contexts: list[Context] = Field(default_factory=list)
+    # Settings the pipeline reports about itself (model, temperature, chunk size...), flattened to strings
+    pipeline: dict[str, str] = Field(default_factory=dict)
 
 
 class CaseResult(BaseModel):
@@ -52,6 +54,10 @@ class CaseResult(BaseModel):
     notes: dict[str, str] = Field(default_factory=dict)
     # Metric -> disagreement between judge samples (max - min); only with judge.samples > 1
     judge_spread: dict[str, float] = Field(default_factory=dict)
+    # Settings the pipeline reported with this answer
+    pipeline: dict[str, str] = Field(default_factory=dict)
+    # With `repeats` > 1: the other answers to the same question (the first one is `answer`)
+    repeat_answers: list[str] = Field(default_factory=list)
 
 
 class RunResult(BaseModel):
@@ -71,3 +77,5 @@ class RunResult(BaseModel):
     errors: int = 0
     judge_errors: int = 0
     source_match: Literal["exact", "basename"] = "exact"
+    # Pipeline settings for the run: each key's most common reported value
+    pipeline: dict[str, str] = Field(default_factory=dict)

@@ -24,12 +24,37 @@ def dig(data: Any, path: str) -> Any:
     return cur
 
 
+def _setting(v: Any) -> str:
+    """One spelling per value, so 0 and 0.0 (or True and true) never show up as a change."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return f"{v:g}"
+    if v is None:
+        return "null"
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_setting(x) for x in v) + "]"
+    return str(v).strip()
+
+
+def flatten(data: Any, prefix: str = "") -> dict[str, str]:
+    """{"llm": {"model": "x", "temperature": 0}} -> {"llm.model": "x", "llm.temperature": "0"}."""
+    if not isinstance(data, dict):
+        return {prefix: _setting(data)} if prefix else {}
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        key = f"{prefix}.{k}" if prefix else str(k)
+        out.update(flatten(v, key) if isinstance(v, dict) else {key: _setting(v)})
+    return out
+
+
 def to_response(
     data: Any,
     answer_path: str = "answer",
     contexts_path: str = "contexts",
     id_field: str = "id",
     text_field: str = "text",
+    pipeline_path: str = "pipeline",
 ) -> TargetResponse:
     if isinstance(data, TargetResponse):
         return data
@@ -63,4 +88,9 @@ def to_response(
             )
         else:
             raise ResponseShapeError(f"Context {i} must be a string or an object")
-    return TargetResponse(answer=answer, contexts=contexts)
+    # Optional: the pipeline's own settings, so a run can say what changed since the baseline
+    try:
+        pipeline = flatten(dig(data, pipeline_path)) if pipeline_path else {}
+    except ResponseShapeError:
+        pipeline = {}
+    return TargetResponse(answer=answer, contexts=contexts, pipeline=pipeline)

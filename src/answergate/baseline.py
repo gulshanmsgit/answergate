@@ -67,6 +67,27 @@ class CaseRegression:
 
 
 @dataclass
+class PipelineChange:
+    """A setting the pipeline reported differently than in the baseline ("" when absent)."""
+
+    key: str
+    before: str
+    after: str
+
+
+def pipeline_changes(current: RunResult, baseline: RunResult | None) -> list[PipelineChange]:
+    """Which reported settings differ from the baseline. Empty unless both runs reported settings."""
+    if baseline is None or not baseline.pipeline or not current.pipeline:
+        return []
+    keys = sorted(set(baseline.pipeline) | set(current.pipeline))
+    return [
+        PipelineChange(k, baseline.pipeline.get(k, ""), current.pipeline.get(k, ""))
+        for k in keys
+        if baseline.pipeline.get(k) != current.pipeline.get(k)
+    ]
+
+
+@dataclass
 class Verdict:
     passed: bool
     failures: list[str] = field(default_factory=list)
@@ -75,6 +96,8 @@ class Verdict:
     guardrails: list[MetricDelta] = field(default_factory=list)
     regressions: list[CaseRegression] = field(default_factory=list)
     improvements: int = 0
+    # Settings the pipeline reports that changed since the baseline: the likely cause of any change
+    pipeline_changes: list[PipelineChange] = field(default_factory=list)
 
     @property
     def regressed_cases(self) -> list[str]:
@@ -143,7 +166,10 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
                 v.failures.append(f"{name} dropped {-d.delta:.3f}{on}; allowed {allowed:.3f}{ci}")
         if d.current is None and d.baseline is not None:
             # A metric silently vanishing (judge switched off, every judge call failing) must not pass
-            v.failures.append(f"{name} was measured in the baseline but not in this run (is the judge off?)")
+            why = (
+                "set repeats: 2 or more, as in the baseline" if name == "consistency" else "is the judge off?"
+            )
+            v.failures.append(f"{name} was measured in the baseline but not in this run ({why})")
 
     for name in t.min:
         if name not in current.metrics:
@@ -189,6 +215,7 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
             f"Only {n} questions: one question can move a metric by up to {1 / n:.2f}. Use 20+ for a stable gate."
         )
 
+    v.pipeline_changes = pipeline_changes(current, baseline)
     v.passed = not v.failures
     return v
 

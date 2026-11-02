@@ -103,6 +103,11 @@ def _baseline_path(cfg: Config) -> Path:
 
 def _print_verdict(run: RunResult, verdict: Verdict) -> None:
     typer.echo("")
+    if verdict.pipeline_changes:
+        typer.secho("  Pipeline changes since the baseline:", bold=True)
+        for c in verdict.pipeline_changes:
+            typer.echo(f"    {c.key}: {c.before or '(not reported)'} → {c.after or '(not reported)'}")
+        typer.echo("")
     for d in verdict.metrics + verdict.guardrails:
         cur = f"{d.current:.3f}" if d.current is not None else "  —  "
         delta = ""

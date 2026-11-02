@@ -30,12 +30,7 @@ app = FastAPI(title="FastAPI docs RAG", lifespan=lifespan)
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {
-        "collection": rag.collection(),
-        "chunk_size": rag.CHUNK_SIZE,
-        "top_k": rag.TOP_K,
-        "llm": rag.LLM_MODEL,
-    }
+    return {"collection": rag.collection(), **rag.settings()}
 
 
 @app.post("/ask")
