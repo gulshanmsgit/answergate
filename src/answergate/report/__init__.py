@@ -86,13 +86,16 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
     if summary := headline(run, verdict):
         lines += [f"**{summary}**", ""]
     if verdict.pipeline_changes:
-        shown = verdict.pipeline_changes[:10]
+        listed = verdict.pipeline_changes[:10]
         changed = " · ".join(
             f"{_code(c.key)} {_cell(c.before, 60) or 'not reported'} → {_cell(c.after, 60) or 'not reported'}"
-            for c in shown
+            for c in listed
         )
-        more = len(verdict.pipeline_changes) - len(shown)
-        lines += [f"**What changed in the pipeline:** {changed}" + (f" · and {more} more" if more else ""), ""]
+        more = len(verdict.pipeline_changes) - len(listed)
+        lines += [
+            f"**What changed in the pipeline:** {changed}" + (f" · and {more} more" if more else ""),
+            "",
+        ]
     lines.append(
         f"{len(run.results)} questions · p50 {run.latency_p50_ms:.0f} ms · p95 {run.latency_p95_ms:.0f} ms"
         + (f" · {run.errors} errors" if run.errors else "")

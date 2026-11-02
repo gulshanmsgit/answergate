@@ -55,8 +55,8 @@ MUTATIONS = [
     (
         "no cap on how many changes are listed",
         "src/answergate/report/__init__.py",
-        "shown = verdict.pipeline_changes[:10]",
-        "shown = verdict.pipeline_changes",
+        "listed = verdict.pipeline_changes[:10]",
+        "listed = verdict.pipeline_changes",
     ),
     (
         "wrong reason when repeats lowered",
@@ -79,14 +79,20 @@ MUTATIONS = [
     (
         "PR comment drops the changes line",
         "src/answergate/report/__init__.py",
-        'lines += [f"**What changed in the pipeline:** {changed}"',
-        'lines += [""',
+        '            f"**What changed in the pipeline:** {changed}" + (f" · and {more} more" if more else ""),',
+        '            "",',
     ),
     (
         "CLI drops the changes",
         "src/answergate/cli.py",
         "    if verdict.pipeline_changes:\n        typer.secho",
         "    if False:\n        typer.secho",
+    ),
+    (
+        "a broken run accepted as the baseline",
+        "src/answergate/cli.py",
+        "    if problems and not force:",
+        "    if False:",
     ),
     (
         "settings varying between answers not flagged",

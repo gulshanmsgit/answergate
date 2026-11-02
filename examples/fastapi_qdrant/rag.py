@@ -22,7 +22,7 @@ CHUNK_OVERLAP = 150  # characters repeated between neighbouring chunks
 TOP_K = 4  # chunks given to the LLM
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 LLM_MODEL = os.environ.get("RAG_LLM", "granite4.1:8b")
-TEMPERATURE = 1.0  # 0 = always the most likely next word
+TEMPERATURE = 0.0  # 0 = always the most likely next word
 # -----------------------------------------------------------------------------
 
 HERE = Path(__file__).parent

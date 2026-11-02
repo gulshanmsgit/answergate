@@ -509,13 +509,30 @@ def generate(
 def set_baseline(
     run_file: Annotated[Path | None, typer.Argument(help="Run file (default: the latest run)")] = None,
     config: ConfigOpt = Path("answergate.yaml"),
+    force: Annotated[bool, typer.Option(help="Accept a run with pipeline or judge errors anyway")] = False,
 ) -> None:
     """Make a saved run the baseline that future runs are compared with."""
     cfg = _load(config)
     src = run_file or latest_run(cfg.path(cfg.workdir))
     if src is None:
         _die("No runs yet. Run `answergate run` first.")
-    save_baseline(_read_run(src, "run"), _baseline_path(cfg))
+    run = _read_run(src, "run")
+    # A baseline missing answers or scores makes every later comparison meaningless: a question that
+    # errored can't regress, and a metric absent from the baseline is never gated
+    problems = []
+    if run.errors:
+        first = next(r.error for r in run.results if r.error)
+        problems.append(f"{run.errors} of {len(run.results)} questions got no answer (e.g. {first})")
+    if run.judge_errors:
+        problems.append(f"{run.judge_errors} questions are missing judge scores")
+    if not run.metrics and not run.guardrails:
+        problems.append("it has no scores at all")
+    if problems and not force:
+        _die(
+            f"Not using {src.name} as the baseline: {'; '.join(problems)[:400]}. "
+            "Fix the cause and run again, or pass --force to accept it anyway."
+        )
+    save_baseline(run, _baseline_path(cfg))
     typer.echo(f"Baseline set to {src.name} → {_baseline_path(cfg)}")
 
 

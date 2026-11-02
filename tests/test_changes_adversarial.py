@@ -249,3 +249,43 @@ def test_the_same_temperature_run_twice_passes(
     again = runner.invoke(app, ["run"])
     assert again.exit_code == 0, again.output
     assert "Pipeline changes" not in again.output
+
+
+# ── A broken run must never become the baseline ──────────────────────
+
+
+def test_a_run_where_every_question_failed_is_refused_as_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What actually happened once: the pipeline died mid-experiment, every question errored, and the
+    # empty run was accepted as the baseline, so no later regression could ever fail the gate
+    (tmp_path / "dead.py").write_text(
+        "def answer(q):\n    raise ConnectionError('model server down')\n", encoding="utf-8"
+    )
+    (tmp_path / "golden.jsonl").write_text(
+        "\n".join(
+            json.dumps({"id": f"q{i}", "question": f"q{i}?", "expected_sources": ["a.md"]}) for i in range(3)
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "answergate.yaml").write_text(
+        "target: { type: python, callable: dead:answer }\njudge: { provider: none }\nretries: 0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(app, ["run"]).exit_code == 1
+    refused = runner.invoke(app, ["baseline"])
+    assert refused.exit_code == 2, refused.output
+    assert "3 of 3 questions got no answer" in refused.output and "ConnectionError" in refused.output
+    assert not (tmp_path / ".answergate" / "baseline.json").exists()
+    forced = runner.invoke(app, ["baseline", "--force"])
+    assert forced.exit_code == 0 and (tmp_path / ".answergate" / "baseline.json").exists()
+
+
+def test_a_clean_failing_run_can_still_be_accepted_as_baseline(unstable_project: Path) -> None:
+    # Accepting a run that fails the gate on purpose (known guardrail failures) must keep working
+    runner = CliRunner()
+    assert runner.invoke(app, ["run"]).exit_code in (0, 1)
+    ok = runner.invoke(app, ["baseline"])
+    assert ok.exit_code == 0, ok.output
