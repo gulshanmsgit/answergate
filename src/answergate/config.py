@@ -34,6 +34,9 @@ class HttpTargetConfig(BaseModel):
     # Optional object in the response with the pipeline's settings (model, temperature, chunk size...);
     # AnswerGate records them and reports which ones changed since the baseline
     pipeline_path: str = "pipeline"
+    # Optional object with token counts ({"input": n, "output": m}; OpenAI and Anthropic spellings work too),
+    # used for the cost per question when `cost` prices are set
+    usage_path: str = "usage"
     timeout_s: float = 60.0
 
 
@@ -72,6 +75,7 @@ METRICS = (
     "relevance",
     "correctness",
     "consistency",
+    "numbers",
 )
 
 
@@ -90,6 +94,17 @@ class Thresholds(BaseModel):
     guardrail_gate: Literal["all", "new"] = "all"
     # Fail on a drop only when its 95% confidence interval excludes zero (fewer false alarms from noise)
     require_significance: bool = False
+    # Off by default: fail if median latency or cost per question rises more than this many percent
+    max_latency_increase_pct: float | None = Field(default=None, ge=0)
+    max_cost_increase_pct: float | None = Field(default=None, ge=0)
+
+
+class CostConfig(BaseModel):
+    """Your model's prices, per 1,000 tokens. None are built in: prices change, and you know yours."""
+
+    input_per_1k: float = Field(ge=0)
+    output_per_1k: float = Field(ge=0)
+    currency: str = "$"
 
 
 class Config(BaseModel):
@@ -107,6 +122,7 @@ class Config(BaseModel):
             "relevance",
             "correctness",
             "consistency",
+            "numbers",
         ]
     )
     # Ask each question this many times; with 2+, `consistency` scores how much the answers agree
@@ -122,6 +138,8 @@ class Config(BaseModel):
     # Cap on how many questions per second are sent to the pipeline (None: no cap)
     rate_limit_rps: float | None = Field(default=None, gt=0)
     thresholds: Thresholds = Field(default_factory=Thresholds)
+    # Prices for the cost per question; needs the pipeline to report token usage
+    cost: CostConfig | None = None
     # How expected_sources match retrieved ids: "basename" ignores folders, case and spaces; "exact" doesn't
     source_match: Literal["basename", "exact"] = "basename"
     # Strings the PII check ignores, e.g. your public support email
@@ -153,7 +171,8 @@ class Config(BaseModel):
     def fingerprint(self) -> str:
         """Hash of the settings that change scores, stored with each run."""
         data = self.model_dump(
-            mode="json", exclude={"root", "concurrency", "retries", "thresholds", "workdir", "rate_limit_rps"}
+            mode="json",
+            exclude={"root", "concurrency", "retries", "thresholds", "workdir", "rate_limit_rps", "cost"},
         )
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
 

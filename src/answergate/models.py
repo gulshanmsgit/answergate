@@ -33,6 +33,9 @@ class TargetResponse(BaseModel):
     contexts: list[Context] = Field(default_factory=list)
     # Settings the pipeline reports about itself (model, temperature, chunk size...), flattened to strings
     pipeline: dict[str, str] = Field(default_factory=dict)
+    # Tokens the pipeline reports for this answer (None when it doesn't say)
+    tokens_in: int | None = None
+    tokens_out: int | None = None
 
 
 class CaseResult(BaseModel):
@@ -58,6 +61,10 @@ class CaseResult(BaseModel):
     pipeline: dict[str, str] = Field(default_factory=dict)
     # With `repeats` > 1: the other answers to the same question (the first one is `answer`)
     repeat_answers: list[str] = Field(default_factory=list)
+    # Tokens for the first answer, and its cost when `cost` prices are set
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    cost: float | None = None
 
 
 class RunResult(BaseModel):
@@ -79,3 +86,7 @@ class RunResult(BaseModel):
     source_match: Literal["exact", "basename"] = "exact"
     # Pipeline settings for the run: each key's most common reported value
     pipeline: dict[str, str] = Field(default_factory=dict)
+    # Mean tokens and cost per answered question (None when the pipeline doesn't report usage)
+    tokens_per_question: float | None = None
+    cost_per_question: float | None = None
+    cost_currency: str = ""

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from answergate.baseline import Verdict
+from answergate.baseline import SpeedCost, Verdict
 from answergate.metrics.retrieval import is_expected
 from answergate.models import RunResult
 
@@ -20,6 +20,7 @@ LABELS = {
     "relevance": "Answer relevance",
     "correctness": "Correctness",
     "consistency": "Answer consistency",
+    "numbers": "Numbers correct",
     "pii": "No PII leaked",
     "injection": "Resists injection",
     "refusal": "Refuses off-topic",
@@ -63,6 +64,47 @@ def _drop(before: str, after: str) -> float:
         return 1.0
 
 
+def _pct(before: float | None, after: float | None) -> str:
+    change = SpeedCost.change_pct(before, after)
+    if change is None:
+        return ""
+    if abs(change) < 0.5:
+        return " (±0%)"
+    return f" ({'+' if change > 0 else '−'}{abs(change):.0f}%)"
+
+
+def _ms(v: float) -> str:
+    return f"{v / 1000:.1f} s" if v >= 10_000 else f"{v:,.0f} ms"
+
+
+def _money(v: float, currency: str) -> str:
+    digits = 4 if v >= 0.01 else 6
+    return f"{currency}{v:,.{digits}f}"
+
+
+def speed_line(sc: SpeedCost | None) -> str:
+    """ "Median answer time 4,476 ms → 2,100 ms (−53%) · p95 … · cost per question $0.0021 → $0.0004 (−81%)"."""
+    if sc is None:
+        return ""
+    parts = []
+    if sc.p50_before is not None and sc.p50_after is not None:
+        parts.append(
+            f"Median answer time {_ms(sc.p50_before)} → {_ms(sc.p50_after)}{_pct(sc.p50_before, sc.p50_after)}"
+        )
+    if sc.p95_before is not None and sc.p95_after is not None:
+        parts.append(f"p95 {_ms(sc.p95_before)} → {_ms(sc.p95_after)}{_pct(sc.p95_before, sc.p95_after)}")
+    if sc.cost_before is not None and sc.cost_after is not None:
+        parts.append(
+            f"cost per question {_money(sc.cost_before, sc.currency)} → {_money(sc.cost_after, sc.currency)}"
+            f"{_pct(sc.cost_before, sc.cost_after)}"
+        )
+    elif sc.tokens_before is not None and sc.tokens_after is not None:
+        parts.append(
+            f"tokens per question {sc.tokens_before:,.0f} → {sc.tokens_after:,.0f}{_pct(sc.tokens_before, sc.tokens_after)}"
+        )
+    return " · ".join(parts)
+
+
 def headline(run: RunResult, verdict: Verdict) -> str:
     """One line a reviewer reads first, e.g. "Correctness dropped 6% (0.925 → 0.869) · 12 of 44 questions got worse"."""
     drops = [
@@ -96,6 +138,8 @@ def markdown(run: RunResult, verdict: Verdict, report_url: str | None = None) ->
             f"**What changed in the pipeline:** {changed}" + (f" · and {more} more" if more else ""),
             "",
         ]
+    if speed := speed_line(verdict.speed):
+        lines += [f"**Speed and cost:** {speed}", ""]
     lines.append(
         f"{len(run.results)} questions · p50 {run.latency_p50_ms:.0f} ms · p95 {run.latency_p95_ms:.0f} ms"
         + (f" · {run.errors} errors" if run.errors else "")
@@ -174,6 +218,7 @@ def html(run: RunResult, verdict: Verdict, baseline: RunResult | None, limit: in
         regressed=regressed,
         results=shown,
         hidden=hidden,
+        speed=speed_line(verdict.speed),
     )
 
 

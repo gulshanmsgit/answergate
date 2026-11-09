@@ -88,6 +88,48 @@ def pipeline_changes(current: RunResult, baseline: RunResult | None) -> list[Pip
 
 
 @dataclass
+class SpeedCost:
+    """Latency, tokens and cost per question, before and after. A side is None when that run didn't measure it."""
+
+    p50_before: float | None
+    p50_after: float | None
+    p95_before: float | None
+    p95_after: float | None
+    tokens_before: float | None = None
+    tokens_after: float | None = None
+    cost_before: float | None = None
+    cost_after: float | None = None
+    currency: str = ""
+
+    @staticmethod
+    def change_pct(before: float | None, after: float | None) -> float | None:
+        if before is None or after is None or before <= 0:
+            return None
+        return (after - before) / before * 100
+
+
+def speed_cost(current: RunResult, baseline: RunResult | None) -> SpeedCost | None:
+    """None without a baseline. Latency 0 means no question was answered, so it counts as not measured."""
+    if baseline is None:
+        return None
+
+    def ms(v: float) -> float | None:
+        return v if v > 0 else None
+
+    return SpeedCost(
+        ms(baseline.latency_p50_ms),
+        ms(current.latency_p50_ms),
+        ms(baseline.latency_p95_ms),
+        ms(current.latency_p95_ms),
+        baseline.tokens_per_question,
+        current.tokens_per_question,
+        baseline.cost_per_question,
+        current.cost_per_question,
+        current.cost_currency or baseline.cost_currency,
+    )
+
+
+@dataclass
 class Verdict:
     passed: bool
     failures: list[str] = field(default_factory=list)
@@ -98,6 +140,8 @@ class Verdict:
     improvements: int = 0
     # Settings the pipeline reports that changed since the baseline: the likely cause of any change
     pipeline_changes: list[PipelineChange] = field(default_factory=list)
+    # Speed and cost against the baseline (None without one)
+    speed: SpeedCost | None = None
 
     @property
     def regressed_cases(self) -> list[str]:
@@ -164,8 +208,9 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
                 v.warnings.append(f"{name} dropped {-d.delta:.3f}{on}, but not significantly{ci}")
             else:
                 v.failures.append(f"{name} dropped {-d.delta:.3f}{on}; allowed {allowed:.3f}{ci}")
-        if d.current is None and d.baseline is not None:
-            # A metric silently vanishing (judge switched off, every judge call failing) must not pass
+        if d.current is None and d.baseline is not None and _measured_before(name, current, baseline):
+            # A metric silently vanishing (judge switched off, every judge call failing) must not pass.
+            # Only for questions that had it in the baseline: a shard or sample may simply not include any
             why = (
                 "set repeats: 2 or more, as in the baseline" if name == "consistency" else "is the judge off?"
             )
@@ -216,8 +261,36 @@ def evaluate(current: RunResult, baseline: RunResult | None, t: Thresholds) -> V
         )
 
     v.pipeline_changes = pipeline_changes(current, baseline)
+    v.speed = speed_cost(current, baseline)
+    if v.speed:
+        _speed_gates(v.speed, t, v)
     v.passed = not v.failures
     return v
+
+
+def _measured_before(name: str, current: RunResult, baseline: RunResult | None) -> bool:
+    """Did the baseline score this metric on any question this run answered?"""
+    if baseline is None:
+        return False
+    if not baseline.results or not current.results:
+        return True  # no per-question detail to tell: assume it was measured, and flag it
+    had = {r.case.id for r in baseline.results if name in r.scores}
+    return any(r.case.id in had for r in current.results if r.error is None)
+
+
+def _speed_gates(sc: SpeedCost, t: Thresholds, v: Verdict) -> None:
+    """Optional gates on median latency and cost per question; off unless set."""
+    for name, limit, before, after in (
+        ("Median latency", t.max_latency_increase_pct, sc.p50_before, sc.p50_after),
+        ("Cost per question", t.max_cost_increase_pct, sc.cost_before, sc.cost_after),
+    ):
+        if limit is None:
+            continue
+        change = SpeedCost.change_pct(before, after)
+        if change is None:
+            v.warnings.append(f"A limit is set for {name.lower()}, but it wasn't measured in both runs")
+        elif change > limit:
+            v.failures.append(f"{name} rose {change:.0f}%; allowed {limit:g}%")
 
 
 def _case_diffs(current: RunResult, baseline: RunResult, v: Verdict) -> None:

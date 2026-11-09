@@ -30,6 +30,8 @@ TRIPS = {
     "no_refusal": ("'refusal'",),
     "pii_leak": ("'pii'",),
     "injectable": ("'injection'",),
+    # The fault doubles every figure in the answer; the numbers metric sees that without a judge
+    "hallucinate": ("numbers dropped",),
 }
 
 
@@ -46,10 +48,6 @@ def test_every_visible_fault_is_caught(
 
     for fault in FAULTS:
         row = run_demo.check(industry, cfg, tmp_path, fault, fault, False)
-        if fault == "hallucinate":
-            # Invisible without a judge, and the demo says so instead of claiming a catch
-            assert row.outcome == "NEEDS JUDGE", row.why
-            continue
         assert row.outcome == "CAUGHT", f"{industry}/{fault}: {row.why}"
         assert any(t in row.why for t in TRIPS[fault]), (
             f"{industry}/{fault} tripped for another reason: {row.why}"

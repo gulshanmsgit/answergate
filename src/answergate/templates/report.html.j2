@@ -104,6 +104,10 @@
   <h2>What changed in the pipeline</h2>
   <ul class="list warn">{% for c in verdict.pipeline_changes %}<li><code>{{ c.key }}</code>: {{ c.before or "not reported" }} → {{ c.after or "not reported" }}</li>{% endfor %}</ul>
   {% endif %}
+  {% if speed %}
+  <h2>Speed and cost</h2>
+  <p>{{ speed }}</p>
+  {% endif %}
   {% if verdict.failures %}
   <h2>Why it failed</h2>
   <ul class="list fail">{% for f in verdict.failures %}<li>{{ f }}</li>{% endfor %}</ul>

@@ -1,5 +1,5 @@
-"""Mutation check: break the change-detection code on purpose, one bug at a time, and confirm the tests
-notice each one. A test suite that passes no matter what proves nothing.
+"""Mutation check: break the change-detection, numbers and speed/cost code on purpose, one bug at a time,
+and confirm the tests notice each one. A test suite that passes no matter what proves nothing.
 
     python scripts/mutation_check.py      # from the repo root; restores every file afterwards
 """
@@ -100,6 +100,80 @@ MUTATIONS = [
         'out[k] = value if len(counts) == 1 else f"{value} (varied: {len(counts)} values)"',
         "out[k] = value",
     ),
+    # numbers metric
+    (
+        "lakh and crore ignored",
+        "src/answergate/metrics/numbers.py",
+        "            value *= _MULTIPLIER[mult]",
+        "            pass",
+    ),
+    (
+        "percent read as a plain number",
+        "src/answergate/metrics/numbers.py",
+        '        if m.group("pct"):',
+        "        if False:",
+    ),
+    (
+        "number words not read",
+        "src/answergate/metrics/numbers.py",
+        "    text = _WORD_NUMBER.sub(lambda m: str(_WORDS[m.group(1).lower()]), text)",
+        "    text = text",
+    ),
+    (
+        "section and form numbers counted as figures",
+        "src/answergate/metrics/numbers.py",
+        '        if not m.group("cur") and _NAMED.search(',
+        "        if False and _NAMED.search(",
+    ),
+    (
+        "hedged figure gets full credit",
+        "src/answergate/metrics/numbers.py",
+        "            credit.append(0.5)",
+        "            credit.append(1.0)",
+    ),
+    (
+        "a percent matches an amount",
+        "src/answergate/metrics/numbers.py",
+        '    return ref.kind == got.kind or "plain" in (ref.kind, got.kind)',
+        "    return True",
+    ),
+    (
+        "numbers never scored in a run",
+        "src/answergate/runner.py",
+        '    if "numbers" in wanted and case.reference_answer:',
+        "    if False:",
+    ),
+    # speed and cost
+    (
+        "latency gate ignores its limit",
+        "src/answergate/baseline.py",
+        "        elif change > limit:",
+        "        elif False:",
+    ),
+    (
+        "PR comment drops speed and cost",
+        "src/answergate/report/__init__.py",
+        '        lines += [f"**Speed and cost:** {speed}", ""]',
+        "        pass",
+    ),
+    (
+        "output tokens priced as input",
+        "src/answergate/runner.py",
+        "res.tokens_out * cfg.cost.output_per_1k",
+        "res.tokens_out * cfg.cost.input_per_1k",
+    ),
+    (
+        "no answers counted as 0 ms",
+        "src/answergate/baseline.py",
+        "        return v if v > 0 else None",
+        "        return v",
+    ),
+    (
+        "OpenAI usage spelling not read",
+        "src/answergate/targets/parse.py",
+        '_IN_KEYS = ("input", "prompt_tokens", "input_tokens", "prompt_eval_count")',
+        '_IN_KEYS = ("input", "input_tokens", "prompt_eval_count")',
+    ),
 ]
 caught = 0
 for name, path, a, b in MUTATIONS:
@@ -118,6 +192,8 @@ for name, path, a, b in MUTATIONS:
                 "no:cacheprovider",
                 "tests/test_changes_adversarial.py",
                 "tests/test_changes.py",
+                "tests/test_numbers.py",
+                "tests/test_speed_cost.py",
             ],
             capture_output=True,
             text=True,

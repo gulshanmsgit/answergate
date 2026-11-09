@@ -41,6 +41,7 @@ class HttpTarget:
             self.cfg.context_id_field,
             self.cfg.context_text_field,
             self.cfg.pipeline_path,
+            self.cfg.usage_path,
         )
 
     async def aclose(self) -> None:

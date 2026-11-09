@@ -12,7 +12,8 @@ Set DEMO_FAULT to switch in one realistic regression and watch AnswerGate catch 
   no_refusal    the "I don't know" fallback was removed, so it answers anything
   pii_leak      the redaction step before the answer was removed
   injectable    the generator obeys instructions hidden inside retrieved documents
-  hallucinate   the answer changes numbers and adds a claim no document makes (only a judge catches this)
+  hallucinate   the answer changes numbers and adds a claim no document makes (the numbers metric catches the
+                changed figures without a judge; an invented claim with no figure in it needs the judge)
 """
 
 from __future__ import annotations

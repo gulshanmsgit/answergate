@@ -55,6 +55,7 @@ def to_response(
     id_field: str = "id",
     text_field: str = "text",
     pipeline_path: str = "pipeline",
+    usage_path: str = "usage",
 ) -> TargetResponse:
     if isinstance(data, TargetResponse):
         return data
@@ -93,4 +94,31 @@ def to_response(
         pipeline = flatten(dig(data, pipeline_path)) if pipeline_path else {}
     except ResponseShapeError:
         pipeline = {}
-    return TargetResponse(answer=answer, contexts=contexts, pipeline=pipeline)
+    tokens_in, tokens_out = _usage(data, usage_path)
+    return TargetResponse(
+        answer=answer, contexts=contexts, pipeline=pipeline, tokens_in=tokens_in, tokens_out=tokens_out
+    )
+
+
+# Token-count spellings: ours, OpenAI's, Anthropic's and Ollama's
+_IN_KEYS = ("input", "prompt_tokens", "input_tokens", "prompt_eval_count")
+_OUT_KEYS = ("output", "completion_tokens", "output_tokens", "eval_count")
+
+
+def _usage(data: Any, usage_path: str) -> tuple[int | None, int | None]:
+    """Input and output token counts from an optional usage object; None for any that's missing or not a number."""
+    try:
+        usage = dig(data, usage_path) if usage_path else None
+    except ResponseShapeError:
+        return None, None
+    if not isinstance(usage, dict):
+        return None, None
+
+    def count(keys: tuple[str, ...]) -> int | None:
+        for k in keys:
+            v = usage.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0:
+                return int(v)
+        return None
+
+    return count(_IN_KEYS), count(_OUT_KEYS)

@@ -18,6 +18,7 @@ from answergate import guardrails as g
 from answergate.config import Config
 from answergate.judges import CachedJudge, FatalJudgeError, JudgeError
 from answergate.metrics import judged
+from answergate.metrics.numbers import score_numbers
 from answergate.metrics.retrieval import retrieval_scores
 from answergate.models import CaseResult, GoldenCase, RunResult
 from answergate.targets import Target
@@ -34,7 +35,13 @@ async def _ask(target: Target, case: GoldenCase, retries: int, timeout_s: float)
             resp = await asyncio.wait_for(target.ask(case.question), timeout_s)
             ms = (time.perf_counter() - start) * 1000
             return CaseResult(
-                case=case, answer=resp.answer, contexts=resp.contexts, latency_ms=ms, pipeline=resp.pipeline
+                case=case,
+                answer=resp.answer,
+                contexts=resp.contexts,
+                latency_ms=ms,
+                pipeline=resp.pipeline,
+                tokens_in=resp.tokens_in,
+                tokens_out=resp.tokens_out,
             )
         except asyncio.TimeoutError:
             error = f"TimeoutError: no answer within {timeout_s:g}s"
@@ -109,6 +116,12 @@ async def score_case(res: CaseResult, cfg: Config, judge: CachedJudge | None) ->
         # Answer-quality metrics don't apply to a question the pipeline should refuse
         return
 
+    # Figures checked without a judge: a wrong rate or limit fails here even if the wording is right
+    if "numbers" in wanted and case.reference_answer:
+        checked = score_numbers(res.answer, case.reference_answer)
+        if checked is not None:
+            res.scores["numbers"], res.notes["numbers"] = checked
+
     if judge is None:
         return
     n, top = cfg.judge.samples, res.contexts[: cfg.k]
@@ -170,10 +183,16 @@ def run_pipeline_settings(results: list[CaseResult]) -> dict[str, str]:
     return out
 
 
-def build_run(results: list[CaseResult], config_hash: str, label: str, source_match: str) -> RunResult:
+def build_run(
+    results: list[CaseResult], config_hash: str, label: str, source_match: str, cost_currency: str = ""
+) -> RunResult:
     """Aggregate per-question results into a run. Used after a run, a resume and a shard merge."""
     metrics, rails = aggregate(results)
     latencies = [r.latency_ms for r in results if r.error is None]
+    tokens = [
+        r.tokens_in + r.tokens_out for r in results if r.tokens_in is not None and r.tokens_out is not None
+    ]
+    costs = [r.cost for r in results if r.cost is not None]
     now = datetime.now(timezone.utc)
     return RunResult(
         id=now.strftime("%Y%m%d-%H%M%S-%f-") + uuid.uuid4().hex[:4],
@@ -189,6 +208,9 @@ def build_run(results: list[CaseResult], config_hash: str, label: str, source_ma
         judge_errors=sum(1 for r in results if r.judge_error),
         source_match=source_match,  # type: ignore[arg-type]
         pipeline=run_pipeline_settings(results),
+        tokens_per_question=round(statistics.fmean(tokens), 1) if tokens else None,
+        cost_per_question=round(statistics.fmean(costs), 6) if costs else None,
+        cost_currency=cost_currency if costs else "",
     )
 
 
@@ -281,6 +303,10 @@ async def run(
     async def one(case: GoldenCase) -> CaseResult:
         await limiter.wait()
         res = await _ask(target, case, cfg.retries, cfg.target_timeout_s)
+        if cfg.cost and res.tokens_in is not None and res.tokens_out is not None:
+            res.cost = (
+                res.tokens_in * cfg.cost.input_per_1k + res.tokens_out * cfg.cost.output_per_1k
+            ) / 1000
         if res.error is None and cfg.repeats > 1 and not case.expect_refusal:
             await ask_again(res)
         if res.error is None:
@@ -340,4 +366,4 @@ async def run(
             log.close()
 
     ordered = [results[c.id] for c in cases if c.id in results]
-    return build_run(ordered, fingerprint, label, cfg.source_match)
+    return build_run(ordered, fingerprint, label, cfg.source_match, cfg.cost.currency if cfg.cost else "")

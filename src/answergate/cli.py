@@ -21,7 +21,7 @@ from answergate.baseline import Verdict, evaluate, latest_run, load_run, save_ba
 from answergate.config import Config, ConfigError, load_config, load_golden
 from answergate.judges import FatalJudgeError, JudgeError, make_judge
 from answergate.models import CaseResult, RunResult
-from answergate.report import label, write_reports
+from answergate.report import label, speed_line, write_reports
 from answergate.runner import build_run
 from answergate.runner import run as run_pipeline
 from answergate.selection import select
@@ -107,6 +107,9 @@ def _print_verdict(run: RunResult, verdict: Verdict) -> None:
         typer.secho("  Pipeline changes since the baseline:", bold=True)
         for c in verdict.pipeline_changes:
             typer.echo(f"    {c.key}: {c.before or '(not reported)'} → {c.after or '(not reported)'}")
+        typer.echo("")
+    if speed := speed_line(verdict.speed):
+        typer.echo(f"  Speed and cost: {speed}")
         typer.echo("")
     for d in verdict.metrics + verdict.guardrails:
         cur = f"{d.current:.3f}" if d.current is not None else "  —  "
@@ -343,7 +346,7 @@ def merge(
             seen[r.case.id] = path.name
             results.append(r)
     label_ = "merged: " + " + ".join(p.label or p.id for p in parts)
-    merged = build_run(results, parts[0].config_hash, label_, parts[0].source_match)
+    merged = build_run(results, parts[0].config_hash, label_, parts[0].source_match, parts[0].cost_currency)
     saved = save_run(merged, cfg.path(cfg.workdir))
     base_path = baseline or _baseline_path(cfg)
     base = _read_run(base_path, "baseline") if base_path.exists() else None
